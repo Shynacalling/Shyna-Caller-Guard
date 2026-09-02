@@ -1,0 +1,17 @@
+{
+  "name": "shyna-link-token-server",
+  "version": "1.0.0",
+  "description": "LiveKit Token Server for Shyna Calling Guard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "livekit-server-sdk": "^2.1.2",
+    "firebase-admin": "^12.1.0"
+  },
+  "author": "Shyna",
+  "license": "ISC"
+}

@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "118812641303",
+    "firebase_url": "https://shyna-calling-guard-14934-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "shyna-calling-guard-14934",
+    "storage_bucket": "shyna-calling-guard-14934.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:118812641303:android:b5495da8132316f3e23452",
+        "android_client_info": {
+          "package_name": "com.example.callruleblocker"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "118812641303-05bnlicrp017c94p6kfdok2d1m3v7lun.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.callruleblocker",
+            "certificate_hash": "058dc00f54a054d91ded7b643ac0e35369543d26"
+          }
+        },
+        {
+          "client_id": "118812641303-0ulisr49hrhaj8tflf5kq078rjmjjgne.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCN4fFi1IDkR2BYmjybqn0bzuu598i-A9U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "118812641303-0ulisr49hrhaj8tflf5kq078rjmjjgne.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

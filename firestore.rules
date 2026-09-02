@@ -1,0 +1,125 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    // User Profiles
+    match /users/{userId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isOwner(userId);
+
+      // User-owned settings/data
+      match /call_history/{callId} {
+        allow read, create, update, delete: if isOwner(userId);
+      }
+      match /callHistory/{callId} {
+        allow read, create, update, delete: if isOwner(userId);
+      }
+      match /favorites/{favId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /archivedChats/{chatId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /blockedUsers/{blockedUid} {
+        allow read, write: if isOwner(userId);
+      }
+      match /settings/{settingId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /chatSettings/{chatId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // Username reservation used by manual signup.
+    match /reserved_ids/{userName} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow update: if signedIn() && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    // App Calls - one-to-one, group calls and meeting media rooms.
+    match /app_calls/{callId} {
+      allow create: if signedIn() && request.resource.data.callerUid == request.auth.uid;
+
+      allow read: if signedIn() &&
+        (request.auth.uid == resource.data.callerUid ||
+         request.auth.uid == resource.data.receiverUid ||
+         (resource.data.participantIds != null && request.auth.uid in resource.data.participantIds));
+
+      // Normal call participants may update signaling state. For MEETING_* records,
+      // an authenticated user may add themselves to participantIds before joining;
+      // media token validation still checks the resulting participant list.
+      allow update: if signedIn() &&
+        (request.auth.uid == resource.data.callerUid ||
+         request.auth.uid == resource.data.receiverUid ||
+         (resource.data.participantIds != null && request.auth.uid in resource.data.participantIds) ||
+         (callId.matches('MEETING_.*') &&
+          request.resource.data.participantIds != null &&
+          request.auth.uid in request.resource.data.participantIds));
+
+      allow delete: if signedIn() && request.auth.uid == resource.data.callerUid;
+    }
+
+    // Chat Room / Zoom-style meetings.
+    match /meetings/{meetingDocId} {
+      allow read, get, list: if signedIn();
+
+      allow create: if signedIn() &&
+        (request.resource.data.hostUid == request.auth.uid || request.auth.uid != null);
+
+      allow update: if signedIn() &&
+        (resource.data.hostUid == request.auth.uid ||
+         (resource.data.invitees != null && request.auth.uid in resource.data.invitees) ||
+         (request.resource.data.invitees != null && request.auth.uid in request.resource.data.invitees));
+
+      allow delete: if signedIn() && resource.data.hostUid == request.auth.uid;
+
+      match /participants/{participantUid} {
+        allow read: if signedIn();
+        allow create, update, delete: if signedIn() && request.auth.uid == participantUid;
+      }
+    }
+
+    // Scheduled Calls
+    match /scheduled_calls/{scheduleId} {
+      allow read: if signedIn() &&
+        (request.auth.uid == resource.data.organizerId ||
+         (resource.data.participantIds != null && request.auth.uid in resource.data.participantIds));
+      allow create: if signedIn() && request.resource.data.organizerId == request.auth.uid;
+      allow update, delete: if signedIn() && request.auth.uid == resource.data.organizerId;
+    }
+
+    // Global Chats & Messages (preserving the app's current shared-chat model).
+    match /chats/{chatId} {
+      allow read, write: if signedIn();
+      match /messages/{msgId} {
+        allow read, write: if signedIn();
+      }
+    }
+
+    // Status/update features used by Shyna Link.
+    match /statuses/{statusId} {
+      allow read, write: if signedIn();
+      match /views/{viewId} { allow read, write: if signedIn(); }
+      match /likes/{likeId} { allow read, write: if signedIn(); }
+    }
+
+    match /channels/{channelId} {
+      allow read, write: if signedIn();
+    }
+
+    match /live_locations/{locationId} {
+      allow read, write: if signedIn();
+    }
+  }
+}
