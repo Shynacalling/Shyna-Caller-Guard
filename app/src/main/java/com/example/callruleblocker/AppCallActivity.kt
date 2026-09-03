@@ -222,10 +222,10 @@ fun AppCallScreen(callId: String, isIncoming: Boolean, autoAcceptState: State<Bo
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
         val micGranted = permissions[Manifest.permission.RECORD_AUDIO] == true
-        val camNeeded = call?.type == AppCallType.VIDEO
+        val camNeeded = call?.type == AppCallType.VIDEO || isMeeting
         val camGranted = if (camNeeded) permissions[Manifest.permission.CAMERA] == true else true
         if (micGranted && camGranted) joinCallLambda?.invoke()
-        else { Toast.makeText(context, "Required permissions denied", Toast.LENGTH_LONG).show(); onExit() }
+        else { Toast.makeText(context, "Microphone & Camera permissions are required", Toast.LENGTH_LONG).show(); onExit() }
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -233,7 +233,9 @@ fun AppCallScreen(callId: String, isIncoming: Boolean, autoAcceptState: State<Bo
         if (!isJoining && room == null) {
             isJoining = true
             val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
-            if (call?.type == AppCallType.VIDEO) permissions.add(Manifest.permission.CAMERA)
+            if (call?.type == AppCallType.VIDEO || isMeeting) {
+                permissions.add(Manifest.permission.CAMERA)
+            }
             
             if (permissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
                 // Use the lifecycleScope of the activity/lifecycleOwner instead of rememberCoroutineScope.

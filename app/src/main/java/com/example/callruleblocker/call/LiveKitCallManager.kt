@@ -41,78 +41,84 @@ class LiveKitCallManager(private val context: Context) {
     suspend fun fetchToken(roomName: String, userId: String, callId: String): String? = withContext(Dispatchers.IO) {
         Log.d("ShynaCall", "TOKEN_REQUEST_STARTED room=$roomName user=$userId call=$callId")
         
-        // Parallelize ID Token fetch and Network check
-        val idTokenDeferred = async {
-            val user = FirebaseAuth.getInstance().currentUser ?: return@async null
-            try { user.getIdToken(false).await().token } catch (e: Exception) { null }
-        }
-        
         if (!isNetworkAvailable()) {
             Log.e("ShynaCall", "TOKEN_REQUEST_FAILED reason=no_internet")
             return@withContext null
         }
 
-        val idToken = idTokenDeferred.await() ?: return@withContext null
+        val user = FirebaseAuth.getInstance().currentUser ?: return@withContext null
+        val idToken = try {
+            user.getIdToken(false).await().token
+        } catch (e: Exception) {
+            Log.e("ShynaCall", "ID_TOKEN_FETCH_FAILED: ${e.message}")
+            null
+        } ?: return@withContext null
+
         val baseUrl = getTokenServerUrl().trimEnd('/')
         val url = "$baseUrl/token"
-        // ... rest of the function stays same but uses 5s timeout from client
-
         
         val json = JsonObject().apply {
             addProperty("roomName", roomName)
             addProperty("participantName", userId)
             addProperty("callId", callId)
         }
-        
-        val body = gson.toJson(json).toRequestBody("application/json".toMediaType())
-        val request = Request.Builder()
-            .url(url)
-            .addHeader("Authorization", "Bearer $idToken")
-            .post(body)
-            .build()
 
-        try {
-            client.newCall(request).execute().use { response ->
-                if (response.code == 401) {
-                    Log.e("ShynaCall", "TOKEN_REQUEST_FAILED reason=UNAUTHORIZED. Check Render Server Environment Variables (API Key/Secret).")
-                    return@withContext null
-                }
-                
-                if (!response.isSuccessful) {
-                    Log.e("ShynaCall", "TOKEN_REQUEST_FAILED code=${response.code} url=$url")
-                    return@withContext null
-                }
-                
-                val responseData = response.body?.string() ?: run {
-                    Log.e("ShynaCall", "TOKEN_REQUEST_FAILED reason=empty_body")
-                    return@withContext null
-                }
-                
-                if (responseData.isBlank()) {
-                    Log.e("ShynaCall", "TOKEN_REQUEST_FAILED reason=blank_body")
-                    return@withContext null
-                }
+        // Retry loop to handle Render server cold start
+        var attempts = 0
+        val maxAttempts = 3
 
-                try {
+        while (attempts < maxAttempts) {
+            attempts++
+            try {
+                Log.d("ShynaCall", "TOKEN_REQUEST_ATTEMPT $attempts of $maxAttempts to $url")
+                val body = gson.toJson(json).toRequestBody("application/json".toMediaType())
+                val request = Request.Builder()
+                    .url(url)
+                    .addHeader("Authorization", "Bearer $idToken")
+                    .post(body)
+                    .build()
+
+                val response = client.newCall(request).execute()
+                response.use { res ->
+                    if (res.code == 401) {
+                        Log.e("ShynaCall", "TOKEN_REQUEST_FAILED reason=UNAUTHORIZED (401). Check Render Server Variables.")
+                        return@withContext null
+                    }
+                    if (!res.isSuccessful) {
+                        Log.e("ShynaCall", "TOKEN_REQUEST_FAILED code=${res.code} url=$url")
+                        if (attempts < maxAttempts) {
+                            delay(2000)
+                            return@use
+                        }
+                        return@withContext null
+                    }
+
+                    val responseData = res.body?.string().orEmpty()
+                    if (responseData.isBlank()) {
+                        Log.e("ShynaCall", "TOKEN_REQUEST_FAILED reason=blank_body")
+                        if (attempts < maxAttempts) {
+                            delay(2000)
+                            return@use
+                        }
+                        return@withContext null
+                    }
+
                     val result = gson.fromJson(responseData, JsonObject::class.java)
                     val token = result.get("token")?.asString
-                    if (token.isNullOrBlank()) {
-                        Log.e("ShynaCall", "TOKEN_REQUEST_FAILED reason=missing_token_field data=$responseData")
-                        null
-                    } else {
-                        Log.d("ShynaCall", "TOKEN_REQUEST_SUCCESS")
-                        token
+                    if (!token.isNullOrBlank()) {
+                        Log.d("ShynaCall", "TOKEN_REQUEST_SUCCESS on attempt $attempts")
+                        return@withContext token
                     }
-                } catch (e: Exception) {
-                    Log.e("ShynaCall", "TOKEN_REQUEST_FAILED reason=malformed_json error=${e.message}")
-                    null
+                }
+            } catch (e: Exception) {
+                Log.w("ShynaCall", "TOKEN_REQUEST_EXCEPTION on attempt $attempts: ${e.message}")
+                if (attempts < maxAttempts) {
+                    delay(2000)
                 }
             }
-        } catch (e: Exception) {
-            Log.e("ShynaCall", "TOKEN_REQUEST_FAILED reason=exception error=${e.message}")
-            e.printStackTrace()
-            return@withContext null
         }
+        Log.e("ShynaCall", "TOKEN_REQUEST_ALL_RETRIES_FAILED")
+        null
     }
 
     suspend fun joinRoom(roomName: String, userId: String, callId: String): Room {
