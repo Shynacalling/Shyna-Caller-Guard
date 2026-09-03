@@ -252,6 +252,13 @@ fun AppCallScreen(callId: String, isIncoming: Boolean, autoAcceptState: State<Bo
                         room = r
                         CallSignalingManager.updateCallStatus(callId, AppCallStatus.CONNECTED)
                         
+                        // Sync any existing remote participants' video tracks immediately on join
+                        r.remoteParticipants.values.forEach { participant ->
+                            participant.videoTrackPublications.mapNotNull { it.second as? VideoTrack }.forEach { track ->
+                                remoteVideoTracks[participant.sid] = track
+                            }
+                        }
+
                         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
                         routeAudio(isSpeakerOn)
                         
@@ -752,9 +759,34 @@ fun VideoCallUI(call: AppCall, isIncoming: Boolean, room: Room?, scope: Coroutin
     val peerName = if (isIncoming) call.callerName else call.receiverName
     val statusText = if (call.status == AppCallStatus.CONNECTED) formatDuration(duration) else "Connecting..."
     val mContext = LocalContext.current
+    val isMeetingCall = call.isGroup || call.id.startsWith("MEETING_") || call.receiverUid == "MEETING_ROOM"
+
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        if (room != null && remoteTracks.isNotEmpty()) VideoGrid(remoteTracks, room, modifier = Modifier.fillMaxSize())
-        else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally) { CircularProgressIndicator(color = ShynaDesign.colors.BrandGreen); Spacer(Modifier.height(16.dp)); Text("Connecting...", color = Color.White) } }
+        if (room != null && remoteTracks.isNotEmpty()) {
+            VideoGrid(remoteTracks, room, modifier = Modifier.fillMaxSize())
+        } else if (isMeetingCall && room?.state == Room.State.CONNECTED) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Surface(shape = CircleShape, modifier = Modifier.size(110.dp), color = Color.DarkGray) {
+                        val photo = call.callerPhoto
+                        if (!photo.isNullOrBlank()) AsyncImage(model = photo, contentDescription = null, contentScale = ContentScale.Crop)
+                        else Icon(Icons.Default.Person, null, modifier = Modifier.padding(24.dp), tint = Color.LightGray)
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Text("Waiting for others to join...", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    val cleanMeetingId = call.id.removePrefix("MEETING_")
+                    Text("Meeting ID: $cleanMeetingId", color = ShynaDesign.colors.BrandGreen, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
+                }
+            }
+        } else {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = ShynaDesign.colors.BrandGreen)
+                    Spacer(Modifier.height(16.dp))
+                    Text("Connecting...", color = Color.White)
+                }
+            }
+        }
         Row(modifier = Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(0.6f), Color.Transparent))).padding(top = 40.dp, start = 16.dp, end = 16.dp, bottom = 40.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.KeyboardArrowDown, null, tint = Color.White, modifier = Modifier.size(30.dp))
             Spacer(Modifier.width(12.dp))
