@@ -46,6 +46,7 @@ import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import com.example.callruleblocker.R
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -222,22 +223,150 @@ fun LocationMessageBubble(m: UniversalMessage) {
 }
 
 @Composable
-fun LiveLocationMessageBubble(m: UniversalMessage) {
-    Row(
+fun LiveLocationMessageBubble(
+    m: UniversalMessage,
+    onOpenLiveLocation: ((UniversalMessage) -> Unit)? = null
+) {
+    val db = remember { FirebaseFirestore.getInstance() }
+    var livePos by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var isSessionActive by remember { mutableStateOf(true) }
+    
+    val expiry = m.liveLocationExpiry ?: 0L
+    var currentTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    // Live Location Firestore observer for sender's real-time position
+    DisposableEffect(m.senderId) {
+        val listener = db.collection("live_locations").document(m.senderId)
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot != null && snapshot.exists()) {
+                    val lat = snapshot.getDouble("lat")
+                    val lng = snapshot.getDouble("lng")
+                    val active = snapshot.getBoolean("isActive") ?: true
+                    if (lat != null && lng != null) {
+                        livePos = Pair(lat, lng)
+                    }
+                    isSessionActive = active
+                }
+            }
+        onDispose { listener.remove() }
+    }
+
+    // Ticking timer for countdown
+    LaunchedEffect(expiry) {
+        while (currentTime < expiry && isSessionActive) {
+            delay(10000L)
+            currentTime = System.currentTimeMillis()
+        }
+    }
+
+    val remainingMs = expiry - currentTime
+    val isExpired = remainingMs <= 0 || !isSessionActive
+
+    val formattedRemaining = remember(remainingMs, isExpired) {
+        if (isExpired) "Live location ended"
+        else {
+            val totalSec = remainingMs / 1000
+            val min = (totalSec / 60) % 60
+            val hrs = totalSec / 3600
+            if (hrs > 0) {
+                "${hrs} hr ${min} min remaining"
+            } else {
+                "${(min).coerceAtLeast(1)} min remaining"
+            }
+        }
+    }
+
+    val lat = livePos?.first ?: 0.0
+    val lon = livePos?.second ?: 0.0
+    val hasCoords = lat != 0.0 || lon != 0.0
+
+    Column(
         modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFFE8F5E9))
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .width(260.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(ShynaDesign.colors.SurfaceBg)
+            .clickable {
+                if (onOpenLiveLocation != null) {
+                    onOpenLiveLocation(m)
+                }
+            }
     ) {
-        Icon(Icons.Default.LocationOn, null, tint = Color(0xFF2E7D32))
-        Spacer(Modifier.width(12.dp))
-        Column {
-            Text("Live Location", fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
-            val expiry = m.liveLocationExpiry ?: 0L
-            val dateStr = remember(expiry) { SimpleDateFormat("dd/MM/yy, HH:mm", Locale.getDefault()).format(Date(expiry)) }
-            Text("Sharing until $dateStr", fontSize = 12.sp, color = Color.Gray)
+        // Map Preview Area
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(150.dp)
+                .background(Color.DarkGray),
+            contentAlignment = Alignment.Center
+        ) {
+            if (hasCoords) {
+                val mapUrl = "https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lon}&zoom=15&size=520x300&markers=color:green%7C${lat},${lon}&key=AIzaSyCN4fFi1IDkR2BYmjybqn0bzuu598i-A9U"
+                AsyncImage(
+                    model = mapUrl,
+                    contentDescription = "Live Map Preview",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(Icons.Default.Map, null, tint = Color.LightGray, modifier = Modifier.size(48.dp))
+            }
+
+            // Live badge overlay
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp),
+                shape = RoundedCornerShape(6.dp),
+                color = if (!isExpired) ShynaDesign.colors.BrandGreen else Color.Red
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.WifiTethering, 
+                        contentDescription = null, 
+                        tint = Color.White, 
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        if (!isExpired) "LIVE" else "ENDED",
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        // Info Row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.LocationOn, 
+                contentDescription = null, 
+                tint = if (!isExpired) ShynaDesign.colors.BrandGreen else Color.Gray,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Live Location",
+                    fontWeight = FontWeight.Bold,
+                    color = ShynaDesign.colors.TextPrimary,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = formattedRemaining,
+                    fontSize = 12.sp,
+                    color = if (!isExpired) ShynaDesign.colors.BrandGreen else ShynaDesign.colors.TextSecondary
+                )
+            }
         }
     }
 }

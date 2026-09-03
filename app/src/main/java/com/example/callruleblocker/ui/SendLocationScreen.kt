@@ -302,6 +302,15 @@ fun SendLocationScreen(onBack: () -> Unit, onSendLocation: (String) -> Unit) {
             onSelect = { durationMs ->
                 showLiveLocationDialog = false
                 val expiry = System.currentTimeMillis() + durationMs
+                
+                // Start Foreground Location Service with expiry time
+                val serviceIntent = Intent(context, LocationService::class.java).apply {
+                    putExtra("expiryTime", expiry)
+                }
+                runCatching {
+                    ContextCompat.startForegroundService(context, serviceIntent)
+                }
+
                 onSendLocation("LIVE|${expiry}")
                 onBack()
             }
@@ -559,9 +568,13 @@ fun SendLocationScreen(onBack: () -> Unit, onSendLocation: (String) -> Unit) {
 @Composable
 private fun LiveLocationDurationPicker(onDismiss: () -> Unit, onSelect: (Long) -> Unit) {
     val options = listOf(
-        "15 minutes" to 15 * 60 * 1000L,
-        "1 hour" to 60 * 60 * 1000L,
-        "5:00 hours" to 5 * 60 * 60 * 1000L
+        "15 Minutes" to 15 * 60 * 1000L,
+        "30 Minutes" to 30 * 60 * 1000L,
+        "1 Hour" to 60 * 60 * 1000L,
+        "2 Hours" to 2 * 60 * 60 * 1000L,
+        "4 Hours" to 4 * 60 * 60 * 1000L,
+        "8 Hours" to 8 * 60 * 60 * 1000L,
+        "24 Hours" to 24 * 60 * 60 * 1000L
     )
     
     AlertDialog(
