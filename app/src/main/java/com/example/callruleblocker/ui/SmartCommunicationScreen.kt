@@ -202,6 +202,21 @@ fun parseUserStatus(d: DocumentSnapshot): UserStatus? {
     }
 }
 
+fun prepareStatusCacheFile(context: Context, uri: Uri, isVideo: Boolean): File? {
+    return try {
+        val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+        val ext = if (isVideo) ".mp4" else ".jpg"
+        val cacheFile = File(context.cacheDir, "status_selected_${System.currentTimeMillis()}$ext")
+        cacheFile.outputStream().use { output ->
+            inputStream.copyTo(output)
+        }
+        cacheFile
+    } catch (e: Exception) {
+        Log.e("StatusCache", "Failed to cache selected status media: ${e.message}", e)
+        null
+    }
+}
+
 private object MediaUploader {
     fun upload(uri: Uri, context: Context, resourceType: String = "auto", onResult: (String?) -> Unit) {
         try {
@@ -324,6 +339,7 @@ private fun SmartCommunicationContent(
     var showTextStatusComposer by remember { mutableStateOf(false) }
     var selectedMediaForStatus by remember { mutableStateOf<Uri?>(null) }
     var isMediaVideoForStatus by remember { mutableStateOf(false) }
+    var showGalleryPickerForStatus by remember { mutableStateOf(false) }
     var showMyStatusManager by remember { mutableStateOf(false) }
     var showStatusViewerGroupIndex by remember { mutableStateOf<Int?>(null) }
     var showStatusPrivacyDialog by remember { mutableStateOf(false) }
@@ -719,7 +735,28 @@ private fun SmartCommunicationContent(
     }
 
     Box(Modifier.fillMaxSize()) {
-        if (showGalleryByChatId != null) {
+        if (showGalleryPickerForStatus) {
+            Box(Modifier.fillMaxSize().background(Color.Black)) {
+                PremiumGalleryScreen(
+                    onBack = { showGalleryPickerForStatus = false },
+                    onMediaSelected = { mediaList ->
+                        val selected = mediaList.firstOrNull()
+                        if (selected != null) {
+                            val (uri, isVideo) = selected
+                            val cachedFile = prepareStatusCacheFile(mContext, uri, isVideo)
+                            if (cachedFile != null) {
+                                selectedMediaForStatus = Uri.fromFile(cachedFile)
+                                isMediaVideoForStatus = isVideo
+                            } else {
+                                selectedMediaForStatus = uri
+                                isMediaVideoForStatus = isVideo
+                            }
+                        }
+                        showGalleryPickerForStatus = false
+                    }
+                )
+            }
+        } else if (showGalleryByChatId != null) {
             val targetId = showGalleryByChatId!!
             PremiumGalleryScreen(
                 onBack = { showGalleryByChatId = null },
@@ -1226,7 +1263,7 @@ private fun SmartCommunicationContent(
                             allUsers = allUsers,
                             statuses = allStatuses,
                             channels = allChannels,
-                            onAddStatus = { statusPickerLauncher.launch("*/*") },
+                            onAddStatus = { showGalleryPickerForStatus = true },
                             onOpenTextComposer = { showTextStatusComposer = true },
                             onOpenMyStatusManager = { showMyStatusManager = true },
                             onOpenMyStatusViewer = {
@@ -1441,7 +1478,7 @@ private fun SmartCommunicationContent(
                     onBack = { showMyStatusManager = false },
                     onAddMoreStatus = {
                         showMyStatusManager = false
-                        statusPickerLauncher.launch("*/*")
+                        showGalleryPickerForStatus = true
                     },
                     onViewStatus = { status ->
                         val activeGroups = allStatuses.filter { it.expiresAt > System.currentTimeMillis() && (it.deletedAt == null || it.deletedAt == 0L) }
