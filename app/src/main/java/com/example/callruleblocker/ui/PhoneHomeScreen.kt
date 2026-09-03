@@ -1680,7 +1680,7 @@ private fun RecentsScreen(query: String, contactsRevision: Int, filterRequest: I
         calls.filter { call ->
             val queryMatch = query.isBlank() || call.number.contains(query, true) || call.name.orEmpty().contains(query, true)
             val typeMatch = when (callTypeFilter) {
-                CallTypeFilter.ALL -> call.type != 99 && call.type != CallLog.Calls.BLOCKED_TYPE
+                CallTypeFilter.ALL -> true
                 CallTypeFilter.MISSED -> call.type == CallLog.Calls.MISSED_TYPE
                 CallTypeFilter.REJECTED -> call.type == CallLog.Calls.REJECTED_TYPE
                 CallTypeFilter.OUTGOING -> call.type == CallLog.Calls.OUTGOING_TYPE
