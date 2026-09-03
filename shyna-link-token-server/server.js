@@ -143,9 +143,13 @@ app.post('/token', verifyToken, async (req, res) => {
     const apiSecret = process.env.LIVEKIT_API_SECRET;
     if (!apiKey || !apiSecret) return res.status(500).json({ error: 'LiveKit credentials not configured on server' });
 
+    const userDoc = await admin.firestore().collection('users').doc(uid).get();
+    const userData = userDoc.data() || {};
+    const realName = userData.name || userData.displayName || participantName || uid;
+
     const at = new AccessToken(apiKey, apiSecret, {
       identity: uid,
-      name: participantName || uid,
+      name: realName,
       ttl: '1h'
     });
     at.addGrant({ roomJoin: true, room: roomName, canPublish: true, canSubscribe: true });

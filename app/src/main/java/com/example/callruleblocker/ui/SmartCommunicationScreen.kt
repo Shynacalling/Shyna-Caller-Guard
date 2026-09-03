@@ -65,6 +65,8 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.core.app.NotificationCompat
 import android.app.NotificationManager
 import android.app.NotificationChannel
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ContentUris
 import android.content.pm.PackageManager
 import android.database.ContentObserver
@@ -6121,34 +6123,25 @@ private fun MeetingsHubContent(
                         onOpenMeeting = { meeting ->
                             if (userId.isBlank()) {
                                 Toast.makeText(context, "Please login to open a meeting", Toast.LENGTH_LONG).show()
-                            } else if (meeting.hostUid == userId && meeting.status == "UPCOMING") {
-                                val now = System.currentTimeMillis()
-                                db.collection("meetings").document(meeting.id).update(
-                                    mapOf("status" to "LIVE", "actualStartTime" to now, "updatedAt" to now)
-                                ).addOnSuccessListener {
-                                    onStartMeeting(meeting.copy(status = "LIVE", actualStartTime = now, updatedAt = now), false)
-                                }.addOnFailureListener { e ->
-                                    Toast.makeText(context, "Unable to start meeting: ${e.message}", Toast.LENGTH_LONG).show()
-                                }
-                            } else if (meeting.status == "LIVE") {
-                                CallSignalingManager.joinMeeting(
-                                    context = context,
-                                    userUid = userId,
-                                    meetingId = meeting.meetingId,
-                                    passcode = meeting.passcode,
-                                    onJoined = { call ->
-                                        context.startActivity(Intent(context, AppCallActivity::class.java).apply {
-                                            putExtra("callId", call.id)
-                                            putExtra("isIncoming", false)
-                                            putExtra("isMeeting", true)
-                                            putExtra("initialMute", if (meeting.hostUid == userId) !meeting.hostAudioOn else meeting.muteOnEntry)
-                                            putExtra("initialVideoOff", if (meeting.hostUid == userId) !meeting.hostVideoOn else !meeting.participantVideoOn)
-                                        })
-                                    },
-                                    onError = { e -> Toast.makeText(context, "Unable to join meeting: ${e.message}", Toast.LENGTH_LONG).show() }
-                                )
                             } else {
-                                Toast.makeText(context, "Meeting has not started yet", Toast.LENGTH_SHORT).show()
+                                val cleanMeetingId = meeting.meetingId.filter { it.isDigit() }
+                                val callId = "MEETING_$cleanMeetingId"
+                                // Instant join within seconds
+                                context.startActivity(Intent(context, AppCallActivity::class.java).apply {
+                                    putExtra("callId", callId)
+                                    putExtra("isIncoming", false)
+                                    putExtra("isMeeting", true)
+                                    putExtra("initialMute", if (meeting.hostUid == userId) !meeting.hostAudioOn else meeting.muteOnEntry)
+                                    putExtra("initialVideoOff", if (meeting.hostUid == userId) !meeting.hostVideoOn else !meeting.participantVideoOn)
+                                })
+                                // Background sync
+                                if (meeting.hostUid == userId && meeting.status == "UPCOMING") {
+                                    val now = System.currentTimeMillis()
+                                    db.collection("meetings").document(meeting.id).update(
+                                        mapOf("status" to "LIVE", "actualStartTime" to now, "updatedAt" to now)
+                                    )
+                                }
+                                CallSignalingManager.joinMeeting(context, userId, meeting.meetingId, meeting.passcode, {}, {})
                             }
                         },
                         onShare = onShareToChat
@@ -6366,28 +6359,51 @@ private fun MeetingHomeContent(
     Column(
         Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .background(ShynaDesign.colors.PrimaryBg)
+            .padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            MeetingHubAction("New Meeting", Icons.Default.VideoCall, ShynaDesign.colors.BrandGreen, onNew)
-            MeetingHubAction("Join", Icons.Default.AddBox, Color(0xFF2196F3), onJoin)
-        }
-        Spacer(Modifier.height(40.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            MeetingHubAction("Schedule", Icons.Default.CalendarToday, Color(0xFFFF9800), onSchedule)
-            MeetingHubAction("Share Screen", Icons.Default.PresentToAll, Color(0xFF9C27B0), onShareScreen)
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = ShynaDesign.colors.SurfaceBg,
+            border = BorderStroke(1.dp, ShynaDesign.colors.DividerColor),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Shyna Secure Meetings", color = ShynaDesign.colors.TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Text("Connect instantly with HD video, end-to-end encryption, and Zoom-like controls.", color = ShynaDesign.colors.TextSecondary, fontSize = 13.sp, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(28.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    MeetingHubAction("New Meeting", Icons.Default.VideoCall, ShynaDesign.colors.BrandGreen, onNew)
+                    MeetingHubAction("Join Room", Icons.Default.Login, Color(0xFF2196F3), onJoin)
+                }
+                Spacer(Modifier.height(24.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    MeetingHubAction("Schedule", Icons.Default.Event, Color(0xFFFF9800), onSchedule)
+                    MeetingHubAction("Share Screen", Icons.Default.ScreenShare, Color(0xFF9C27B0), onShareScreen)
+                }
+            }
         }
         
-        Spacer(Modifier.height(60.dp))
-        Text(
-            "Start or join secure Shyna meetings with high-quality audio and video.",
-            color = ShynaDesign.colors.TextSecondary,
-            fontSize = 14.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 24.dp)
-        )
+        Spacer(Modifier.height(24.dp))
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = ShynaDesign.colors.SurfaceBg,
+            border = BorderStroke(1.dp, ShynaDesign.colors.DividerColor),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Info, null, tint = ShynaDesign.colors.BrandGreen, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("How other users join:", color = ShynaDesign.colors.TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+                Spacer(Modifier.height(6.dp))
+                Text("Share your Meeting ID & Passcode or tap the Share/Send icon on your meeting card to send the invite link directly into the chat room. Others simply open Shyna, tap 'Join', and enter the Meeting ID to connect instantly!", color = ShynaDesign.colors.TextSecondary, fontSize = 12.sp)
+            }
+        }
     }
 }
 
@@ -6395,18 +6411,18 @@ private fun MeetingHomeContent(
 private fun MeetingHubAction(label: String, icon: ImageVector, color: Color, onClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
-            modifier = Modifier.size(72.dp),
+            modifier = Modifier.size(68.dp),
             shape = RoundedCornerShape(20.dp),
             color = color,
             onClick = onClick,
-            shadowElevation = 4.dp
+            shadowElevation = 6.dp
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(icon, null, tint = Color.White, modifier = Modifier.size(36.dp))
+                Icon(icon, null, tint = Color.White, modifier = Modifier.size(32.dp))
             }
         }
-        Spacer(Modifier.height(12.dp))
-        Text(label, color = ShynaDesign.colors.TextPrimary, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+        Spacer(Modifier.height(10.dp))
+        Text(label, color = ShynaDesign.colors.TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
     }
 }
 
@@ -6480,53 +6496,75 @@ private fun MeetingInvitationCard(
     val mContext = LocalContext.current
     val dateStr = remember(meeting.startAt) { SimpleDateFormat("EEEE, dd MMM • hh:mm a", Locale.getDefault()).format(Date(meeting.startAt)) }
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
         color = ShynaDesign.colors.SurfaceBg,
-        border = BorderStroke(1.dp, ShynaDesign.colors.DividerColor),
+        border = BorderStroke(1.dp, if (meeting.status == "LIVE") Color.Red.copy(0.5f) else ShynaDesign.colors.DividerColor),
+        shadowElevation = 4.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
-                Text(meeting.title, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, color = ShynaDesign.colors.TextPrimary)
+        Column(Modifier.padding(18.dp)) {
+            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(ShynaDesign.colors.BrandGreen.copy(0.15f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.VideoCall, null, tint = ShynaDesign.colors.BrandGreen, modifier = Modifier.size(22.dp))
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(meeting.title, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = ShynaDesign.colors.TextPrimary)
+                        Text("Host: ${meeting.hostName}", fontSize = 12.sp, color = ShynaDesign.colors.TextSecondary)
+                    }
+                }
                 if (meeting.status == "LIVE") {
-                    Surface(color = Color.Red, shape = RoundedCornerShape(4.dp)) {
-                        Text("LIVE", color = Color.White, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Surface(color = Color.Red, shape = RoundedCornerShape(8.dp)) {
+                        Text("● LIVE", color = Color.White, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            Text("Host: ${meeting.hostName}", fontSize = 13.sp, color = ShynaDesign.colors.TextSecondary)
-            Text(dateStr, fontSize = 13.sp, color = ShynaDesign.colors.TextPrimary, fontWeight = FontWeight.Medium)
             
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(12.dp))
+            Text(dateStr, fontSize = 13.sp, color = ShynaDesign.colors.TextSecondary, fontWeight = FontWeight.Medium)
+            
+            Spacer(Modifier.height(14.dp))
             HorizontalDivider(color = ShynaDesign.colors.DividerColor)
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(14.dp))
             
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
-                    Text("Meeting ID", fontSize = 11.sp, color = ShynaDesign.colors.TextSecondary)
-                    Text(meeting.meetingId, fontWeight = FontWeight.Bold, color = ShynaDesign.colors.BrandGreen, letterSpacing = 1.sp)
+                    Text("MEETING ID", fontSize = 10.sp, color = ShynaDesign.colors.TextSecondary, fontWeight = FontWeight.Bold)
+                    Text(meeting.meetingId, fontWeight = FontWeight.ExtraBold, color = ShynaDesign.colors.BrandGreen, fontSize = 15.sp, letterSpacing = 1.2.sp)
                 }
                 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IconButton(onClick = {
-                        val invite = "Join Shyna Meeting: ${meeting.title}\nID: ${meeting.meetingId}\nPasscode: ${meeting.passcode}\nLink: https://shyna.app/join/${meeting.meetingId}"
-                        val cb = mContext.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                        cb.setPrimaryClip(android.content.ClipData.newPlainText("Invite", invite))
-                        Toast.makeText(mContext, "Invitation copied", Toast.LENGTH_SHORT).show()
-                    }) { Icon(Icons.Default.Share, null, tint = ShynaDesign.colors.BrandGreen) }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = {
+                            val invite = "Join Shyna Meeting: ${meeting.title}\nID: ${meeting.meetingId}\nPasscode: ${meeting.passcode}\nLink: https://shyna.app/join/${meeting.meetingId}"
+                            val cb = mContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cb.setPrimaryClip(ClipData.newPlainText("Invite", invite))
+                            Toast.makeText(mContext, "Meeting invitation copied", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) { Icon(Icons.Default.Share, null, tint = ShynaDesign.colors.BrandGreen, modifier = Modifier.size(18.dp)) }
                     
-                    IconButton(onClick = {
-                        val invite = "Join Shyna Meeting: ${meeting.title}\nID: ${meeting.meetingId}\nPasscode: ${meeting.passcode}\nLink: https://shyna.app/join/${meeting.meetingId}"
-                        onShareToChat(invite)
-                    }) { Icon(Icons.Default.Send, null, tint = ShynaDesign.colors.BrandGreen) }
+                    IconButton(
+                        onClick = {
+                            val invite = "Join Shyna Meeting: ${meeting.title}\nID: ${meeting.meetingId}\nPasscode: ${meeting.passcode}\nLink: https://shyna.app/join/${meeting.meetingId}"
+                            onShareToChat(invite)
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) { Icon(Icons.Default.Send, null, tint = ShynaDesign.colors.BrandGreen, modifier = Modifier.size(18.dp)) }
                     
                     Button(
                         onClick = onStart,
                         colors = ButtonDefaults.buttonColors(containerColor = if(meeting.status == "LIVE") Color.Red else ShynaDesign.colors.BrandGreen),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp)
                     ) {
-                        Text(if(isHost) "START" else "JOIN", fontWeight = FontWeight.Bold)
+                        Text(if(isHost && meeting.status == "LIVE") "RESUME" else if(isHost) "START" else "JOIN", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
             }

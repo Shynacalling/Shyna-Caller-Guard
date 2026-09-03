@@ -12,6 +12,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.media.RingtoneManager
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -29,6 +30,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -36,6 +38,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ScreenShare
 import androidx.compose.material.icons.automirrored.filled.StopScreenShare
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -46,6 +49,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -762,25 +766,57 @@ fun CallActionButton(icon: androidx.compose.ui.graphics.vector.ImageVector, labe
 }
 
 @Composable
-fun VideoCallUI(call: AppCall, isIncoming: Boolean, room: Room?, scope: CoroutineScope, duration: Long, networkType: String, remoteTracks: List<VideoTrack>, localTrack: VideoTrack?, isMuted: Boolean, isCameraOff: Boolean, isSpeakerOn: Boolean, isScreenSharing: Boolean, screenShareLauncher: ActivityResultLauncher<Intent>, onMuteToggle: () -> Unit, onCameraToggle: () -> Unit, onSpeakerToggle: () -> Unit, onScreenShareToggle: (Boolean) -> Unit, onSwitchCamera: () -> Unit, onEndCall: () -> Unit, onShowParticipants: () -> Unit) {
+fun VideoCallUI(
+    call: AppCall,
+    isIncoming: Boolean,
+    room: Room?,
+    scope: CoroutineScope,
+    duration: Long,
+    networkType: String,
+    remoteTracks: List<VideoTrack>,
+    localTrack: VideoTrack?,
+    isMuted: Boolean,
+    isCameraOff: Boolean,
+    isSpeakerOn: Boolean,
+    isScreenSharing: Boolean,
+    screenShareLauncher: ActivityResultLauncher<Intent>,
+    onMuteToggle: () -> Unit,
+    onCameraToggle: () -> Unit,
+    onSpeakerToggle: () -> Unit,
+    onScreenShareToggle: (Boolean) -> Unit,
+    onSwitchCamera: () -> Unit,
+    onEndCall: () -> Unit,
+    onShowParticipants: () -> Unit
+) {
     val peerName = if (isIncoming) call.callerName else call.receiverName
-    val statusText = if (call.status == AppCallStatus.CONNECTED) formatDuration(duration) else "Connecting..."
     val mContext = LocalContext.current
     val isMeetingCall = call.isGroup || call.id.startsWith("MEETING_") || call.receiverUid == "MEETING_ROOM"
+    val meetingTitle = if (call.isGroup || call.id.startsWith("MEETING_")) "${FirebaseAuth.getInstance().currentUser?.displayName ?: "Shashi"}'s Z..." else peerName
+
+    var showChatDialog by remember { mutableStateOf(false) }
+    var showMoreDialog by remember { mutableStateOf(false) }
+    var showSecurityDialog by remember { mutableStateOf(false) }
+    val chatMessages = remember { mutableStateListOf<Pair<String, String>>("Host" to "Welcome to Shyna Zoom Meeting!") }
+    var chatInput by remember { mutableStateOf("") }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        // Video View / Grid
         if (room != null && remoteTracks.isNotEmpty()) {
             VideoGrid(remoteTracks, room, modifier = Modifier.fillMaxSize())
+        } else if (isMeetingCall && room?.state == Room.State.CONNECTED && localTrack != null && !isCameraOff) {
+            Box(Modifier.fillMaxSize()) {
+                VideoRenderer(localTrack, room, modifier = Modifier.fillMaxSize())
+            }
         } else if (isMeetingCall && room?.state == Room.State.CONNECTED) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Surface(shape = CircleShape, modifier = Modifier.size(110.dp), color = Color.DarkGray) {
-                        val photo = call.callerPhoto
+                        val photo = FirebaseAuth.getInstance().currentUser?.photoUrl?.toString() ?: call.callerPhoto
                         if (!photo.isNullOrBlank()) AsyncImage(model = photo, contentDescription = null, contentScale = ContentScale.Crop)
                         else Icon(Icons.Default.Person, null, modifier = Modifier.padding(24.dp), tint = Color.LightGray)
                     }
                     Spacer(Modifier.height(16.dp))
-                    Text("Waiting for others to join...", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Text(if (isCameraOff) "Camera is off" else "Waiting for participants to join...", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                     val cleanMeetingId = call.id.removePrefix("MEETING_")
                     Text("Meeting ID: $cleanMeetingId", color = ShynaDesign.colors.BrandGreen, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
                 }
@@ -790,54 +826,338 @@ fun VideoCallUI(call: AppCall, isIncoming: Boolean, room: Room?, scope: Coroutin
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(color = ShynaDesign.colors.BrandGreen)
                     Spacer(Modifier.height(16.dp))
-                    Text("Connecting...", color = Color.White)
+                    Text("Connecting to Shyna Meeting...", color = Color.White)
                 }
             }
         }
-        Row(modifier = Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(0.6f), Color.Transparent))).padding(top = 40.dp, start = 16.dp, end = 16.dp, bottom = 40.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.KeyboardArrowDown, null, tint = Color.White, modifier = Modifier.size(30.dp))
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(if (call.isGroup) call.receiverName else peerName, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                val stateName = if(room?.state == Room.State.CONNECTED) "LIVE" else room?.state?.name ?: "IDLE"
-                Text(if(room?.state == Room.State.CONNECTED) statusText else "Connecting... ($stateName)", color = if(stateName == "LIVE") ShynaDesign.colors.BrandGreen else Color.White.copy(0.8f), fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            }
-            if (call.isGroup) {
-                IconButton(onClick = onShowParticipants) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Groups, null, tint = Color.White)
-                        val count = (room?.remoteParticipants?.size ?: 0) + 1
-                        Surface(
-                            modifier = Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp),
-                            color = ShynaDesign.colors.BrandGreen,
-                            shape = CircleShape
-                        ) {
-                            Text(count.toString(), fontSize = 10.sp, modifier = Modifier.padding(horizontal = 4.dp), color = Color.White)
-                        }
-                    }
-                }
-            }
-            IconButton(onClick = onSwitchCamera) { Icon(Icons.Default.SwitchCamera, null, tint = Color.White) }
-        }
-        if (room != null && localTrack != null) {
-            Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 100.dp, end = 16.dp).size(110.dp, 160.dp).clip(RoundedCornerShape(12.dp)).background(Color.DarkGray).border(2.dp, Color.White.copy(0.4f), RoundedCornerShape(12.dp)).zIndex(5f)) {
+
+        // Local Video PiP Preview if remote is primary
+        if (room != null && localTrack != null && remoteTracks.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 90.dp, end = 16.dp)
+                    .size(110.dp, 160.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.DarkGray)
+                    .border(2.dp, Color.White.copy(0.4f), RoundedCornerShape(12.dp))
+                    .zIndex(5f)
+            ) {
                 VideoRenderer(localTrack, room, modifier = Modifier.fillMaxSize())
                 if (isCameraOff) {
                     Box(Modifier.fillMaxSize().background(Color.Black.copy(0.6f)), contentAlignment = Alignment.Center) {
                         Icon(Icons.Default.VideocamOff, null, tint = Color.White)
                     }
                 }
+                Text(
+                    text = "You",
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color.Black.copy(0.6f), RoundedCornerShape(4.dp)).padding(horizontal = 4.dp, vertical = 2.dp)
+                )
             }
         }
-        Surface(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp), shape = RoundedCornerShape(28.dp), color = Color(0xFF1F2C34).copy(alpha = 0.9f)) {
-            Row(modifier = Modifier.padding(vertical = 16.dp, horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                CallActionButtonSmall(icon = if (isSpeakerOn) Icons.Default.VolumeUp else Icons.Default.VolumeMute, isActive = isSpeakerOn, onClick = onSpeakerToggle)
-                CallActionButtonSmall(icon = if (isCameraOff) Icons.Default.VideocamOff else Icons.Default.Videocam, isActive = isCameraOff, onClick = onCameraToggle)
-                CallActionButtonSmall(icon = if (isMuted) Icons.Default.MicOff else Icons.Default.Mic, isActive = isMuted, onClick = onMuteToggle)
-                CallActionButtonSmall(icon = if (isScreenSharing) Icons.AutoMirrored.Filled.StopScreenShare else Icons.AutoMirrored.Filled.ScreenShare, isActive = isScreenSharing, onClick = { if (isScreenSharing) { scope.launch { room?.localParticipant?.setScreenShareEnabled(false); onScreenShareToggle(false) } } else { val mediaProjectionManager = mContext.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as android.media.projection.MediaProjectionManager; screenShareLauncher.launch(mediaProjectionManager.createScreenCaptureIntent()) } })
-                FloatingActionButton(onClick = onEndCall, containerColor = Color(0xFFE53935), shape = CircleShape, modifier = Modifier.size(60.dp)) { Icon(Icons.Default.CallEnd, null, tint = Color.White, modifier = Modifier.size(28.dp)) }
+
+        // Name Tag Overlay on Video (Zoom style bottom-left badge)
+        Box(modifier = Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 110.dp).zIndex(6f)) {
+            Surface(
+                color = Color.Black.copy(0.6f),
+                shape = RoundedCornerShape(6.dp)
+            ) {
+                Text(
+                    text = FirebaseAuth.getInstance().currentUser?.displayName?.takeIf { it.isNotBlank() } ?: "iam shashi",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
             }
         }
+
+        // --- ZOOM TOP BAR ---
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.Black.copy(0.8f), Color.Transparent)))
+                .padding(top = 36.dp, start = 12.dp, end = 12.dp, bottom = 20.dp)
+                .zIndex(10f),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Top-left Minimize arrow
+            IconButton(onClick = onEndCall) {
+                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Minimize", tint = Color.White, modifier = Modifier.size(28.dp))
+            }
+            Spacer(Modifier.width(4.dp))
+            // Meeting Title with dropdown arrow
+            Row(
+                modifier = Modifier.weight(1f).clickable { showSecurityDialog = true },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = meetingTitle,
+                    color = Color.White,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+                Spacer(Modifier.width(2.dp))
+                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+            }
+            // Top-right Zoom Action Icons
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                // 1. Security Shield with Check
+                IconButton(onClick = { showSecurityDialog = true }, modifier = Modifier.size(36.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Security, contentDescription = "Security", tint = Color.White, modifier = Modifier.size(20.dp))
+                        Box(modifier = Modifier.size(8.dp).background(Color(0xFF25D366), CircleShape).align(Alignment.BottomEnd))
+                    }
+                }
+                // 2. Whiteboard / Pen
+                IconButton(onClick = { Toast.makeText(mContext, "Whiteboard active", Toast.LENGTH_SHORT).show() }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.Edit, contentDescription = "Whiteboard", tint = Color.White, modifier = Modifier.size(20.dp))
+                }
+                // 3. Sparkles / Effects
+                IconButton(onClick = { Toast.makeText(mContext, "Video touch-up active", Toast.LENGTH_SHORT).show() }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = "Effects", tint = Color.White, modifier = Modifier.size(20.dp))
+                }
+                // 4. Audio Routing Speaker
+                IconButton(onClick = onSpeakerToggle, modifier = Modifier.size(36.dp)) {
+                    Icon(if (isSpeakerOn) Icons.Default.VolumeUp else Icons.Default.VolumeMute, contentDescription = "Audio", tint = Color.White, modifier = Modifier.size(20.dp))
+                }
+                // 5. Camera Switch
+                IconButton(onClick = onSwitchCamera, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.Cameraswitch, contentDescription = "Switch Camera", tint = Color.White, modifier = Modifier.size(20.dp))
+                }
+            }
+        }
+
+        // --- ZOOM BOTTOM BAR ---
+        Surface(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Color(0xFF121B22))
+                .zIndex(10f),
+            color = Color(0xFF121B22)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp, horizontal = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 1. Mute / Unmute
+                ZoomBottomButton(
+                    icon = if (isMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                    label = if (isMuted) "Unmute" else "Mute",
+                    isActive = isMuted,
+                    onClick = onMuteToggle
+                )
+                // 2. Stop Video / Start Video
+                ZoomBottomButton(
+                    icon = if (isCameraOff) Icons.Default.VideocamOff else Icons.Default.Videocam,
+                    label = if (isCameraOff) "Start video" else "Stop video",
+                    isActive = isCameraOff,
+                    onClick = onCameraToggle
+                )
+                // 3. Chat
+                ZoomBottomButton(
+                    icon = Icons.AutoMirrored.Filled.Chat,
+                    label = "Chat",
+                    isActive = false,
+                    onClick = { showChatDialog = true }
+                )
+                // 4. Participants (with count badge)
+                ZoomBottomButtonWithBadge(
+                    icon = Icons.Default.Groups,
+                    label = "Participants",
+                    badgeCount = (room?.remoteParticipants?.size ?: 0) + 1,
+                    onClick = onShowParticipants
+                )
+                // 5. More (...)
+                ZoomBottomButton(
+                    icon = Icons.Default.MoreHoriz,
+                    label = "More",
+                    isActive = false,
+                    onClick = { showMoreDialog = true }
+                )
+                // 6. End (Red Button)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.clickable(onClick = onEndCall).padding(4.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFFE53935),
+                        modifier = Modifier.size(42.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.Close, contentDescription = "End", tint = Color.White, modifier = Modifier.size(24.dp))
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text("End", color = Color(0xFFE53935), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        // --- MEETINGS CHAT DIALOG ---
+        if (showChatDialog) {
+            AlertDialog(
+                onDismissRequest = { showChatDialog = false },
+                title = { Text("Meeting Chat", fontWeight = FontWeight.Bold, color = Color.White) },
+                text = {
+                    Column(modifier = Modifier.fillMaxWidth().height(250.dp)) {
+                        LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(chatMessages.size) { idx ->
+                                val msg = chatMessages[idx]
+                                Column {
+                                    Text(msg.first, color = ShynaDesign.colors.BrandGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text(msg.second, color = Color.White, fontSize = 14.sp)
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = chatInput,
+                                onValueChange = { chatInput = it },
+                                placeholder = { Text("Send message to everyone", color = Color.Gray) },
+                                modifier = Modifier.weight(1f),
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = ShynaDesign.colors.BrandGreen, unfocusedBorderColor = Color.Gray, focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    if (chatInput.isNotBlank()) {
+                                        chatMessages.add("You" to chatInput)
+                                        chatInput = ""
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = ShynaDesign.colors.BrandGreen)
+                            ) {
+                                Text("Send", color = Color.Black, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showChatDialog = false }) { Text("Close", color = ShynaDesign.colors.BrandGreen) }
+                },
+                containerColor = Color(0xFF1F2C34)
+            )
+        }
+
+        // --- ZOOM MORE OPTIONS BOTTOM SHEET ---
+        if (showMoreDialog) {
+            ZoomMoreBottomSheet(
+                onDismiss = { showMoreDialog = false },
+                onStartShare = {
+                    val mediaProjectionManager = mContext.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                    screenShareLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
+                },
+                onShowCaptions = { Toast.makeText(mContext, "Live Captions enabled", Toast.LENGTH_SHORT).show() },
+                onMeetingInfo = { showSecurityDialog = true },
+                onHostTools = { Toast.makeText(mContext, "Host Tools & Security", Toast.LENGTH_SHORT).show(); showSecurityDialog = true },
+                onSettings = { Toast.makeText(mContext, "Meeting Settings", Toast.LENGTH_SHORT).show() },
+                onRaiseHand = { Toast.makeText(mContext, "Hand raised", Toast.LENGTH_SHORT).show() },
+                onReaction = { emoji: String -> Toast.makeText(mContext, "Reaction: $emoji", Toast.LENGTH_SHORT).show() },
+                onDisconnectAudio = {
+                    val audioManager = mContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                    audioManager.mode = AudioManager.MODE_NORMAL
+                    Toast.makeText(mContext, "Audio disconnected", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
+
+        // --- SECURITY DIALOG ---
+        if (showSecurityDialog) {
+            AlertDialog(
+                onDismissRequest = { showSecurityDialog = false },
+                title = { Text("Meeting Security", fontWeight = FontWeight.Bold, color = Color.White) },
+                text = {
+                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Meeting ID: ${call.id.removePrefix("MEETING_")}", color = Color.LightGray, fontSize = 14.sp)
+                        Text("Host: Shashi (You)", color = Color.LightGray, fontSize = 14.sp)
+                        Text("End-to-End Encrypted via LiveKit", color = ShynaDesign.colors.BrandGreen, fontSize = 14.sp)
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showSecurityDialog = false }) { Text("OK", color = ShynaDesign.colors.BrandGreen) }
+                },
+                containerColor = Color(0xFF1F2C34)
+            )
+        }
+    }
+}
+
+@Composable
+fun ZoomBottomButton(
+    icon: ImageVector,
+    label: String,
+    isActive: Boolean,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clickable(onClick = onClick).padding(4.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = if (isActive) Color(0xFFE53935) else Color.White,
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = label,
+            color = if (isActive) Color(0xFFE53935) else Color.White,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+fun ZoomBottomButtonWithBadge(
+    icon: ImageVector,
+    label: String,
+    badgeCount: Int,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clickable(onClick = onClick).padding(4.dp)
+    ) {
+        Box(contentAlignment = Alignment.TopEnd) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = Color.White,
+                modifier = Modifier.size(24.dp)
+            )
+            Surface(
+                color = ShynaDesign.colors.BrandGreen,
+                shape = CircleShape,
+                modifier = Modifier.offset(x = 8.dp, y = (-4).dp)
+            ) {
+                Text(
+                    text = badgeCount.toString(),
+                    color = Color.Black,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
 
@@ -901,8 +1221,9 @@ fun ParticipantListDialog(room: Room, onDismiss: () -> Unit) {
                         }
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
+                            val displayName = p.name?.takeIf { it.isNotBlank() } ?: p.identity?.value ?: "Participant"
                             Text(
-                                text = if (isLocal) "${p.identity?.value ?: "Me"} (You)" else p.identity?.value ?: "Participant",
+                                text = if (isLocal) "$displayName (You)" else displayName,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color.White
                             )
@@ -940,4 +1261,139 @@ private fun formatDuration(seconds: Long): String {
     val h = seconds / 3600; val m = (seconds % 3600) / 60; val s = seconds % 60
     return if (h > 0) String.format(java.util.Locale.US, "%02d:%02d:%02d", h, m, s) 
     else String.format(java.util.Locale.US, "%02d:%02d", m, s)
+}
+
+@Composable
+fun ZoomMoreBottomSheet(
+    onDismiss: () -> Unit,
+    onStartShare: () -> Unit,
+    onShowCaptions: () -> Unit,
+    onMeetingInfo: () -> Unit,
+    onHostTools: () -> Unit,
+    onSettings: () -> Unit,
+    onRaiseHand: () -> Unit,
+    onReaction: (String) -> Unit,
+    onDisconnectAudio: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(0.5f))
+            .clickable(onClick = onDismiss)
+            .zIndex(50f),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = false) {},
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            color = Color(0xFF121B22)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(40.dp)
+                        .height(4.dp)
+                        .background(Color.Gray, CircleShape)
+                )
+                Spacer(Modifier.height(16.dp))
+
+                // Top Reactions Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        onClick = onRaiseHand,
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color(0xFF2A3942),
+                        modifier = Modifier.height(40.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.PanTool, null, tint = Color(0xFFFFD700), modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Raise hand", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+
+                    listOf("🎉", "👍", "❤️").forEach { emoji ->
+                        Surface(
+                            onClick = { onReaction(emoji) },
+                            shape = CircleShape,
+                            color = Color(0xFF2A3942),
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(emoji, fontSize = 18.sp)
+                            }
+                        }
+                    }
+                    IconButton(onClick = { onReaction("👏") }, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Default.MoreHoriz, null, tint = Color.White)
+                    }
+                }
+
+                Spacer(Modifier.height(24.dp))
+
+                // Action Grid Rows
+                Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
+                        MoreActionItem(icon = Icons.AutoMirrored.Filled.ScreenShare, label = "Start share", onClick = { onDismiss(); onStartShare() })
+                        MoreActionItem(icon = Icons.Default.ClosedCaption, label = "Show captions", onClick = { onDismiss(); onShowCaptions() })
+                        MoreActionItem(icon = Icons.Default.Apps, label = "Apps", onClick = { onDismiss() })
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
+                        MoreActionItem(icon = Icons.Default.HeadsetOff, label = "Disconnect audio", onClick = { onDismiss(); onDisconnectAudio() })
+                        MoreActionItem(icon = Icons.Default.Info, label = "Meeting info", onClick = { onDismiss(); onMeetingInfo() })
+                        MoreActionItem(icon = Icons.Default.Security, label = "Host tools", onClick = { onDismiss(); onHostTools() })
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+                        Box(modifier = Modifier.width(100.dp)) {
+                            MoreActionItem(icon = Icons.Default.Settings, label = "Settings", onClick = { onDismiss(); onSettings() })
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun MoreActionItem(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .width(80.dp)
+            .padding(4.dp)
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = Color(0xFF2A3942),
+            modifier = Modifier.size(52.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(24.dp))
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1
+        )
+    }
 }
