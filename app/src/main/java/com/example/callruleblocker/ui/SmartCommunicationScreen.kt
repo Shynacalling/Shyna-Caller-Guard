@@ -2104,8 +2104,16 @@ private fun SmartChatDetailScreen(
     onOpenLiveLocation: (UniversalMessage) -> Unit = {}
 ) {
     val db = FirebaseFirestore.getInstance()
-    val peer = allUsers.find { it.uid == peerId }
-    val currentUserProfile = allUsers.find { it.uid == userId }
+    val peer = allUsers.find { it.uid == peerId } ?: RealUser(
+        uid = peerId,
+        name = "Shyna User",
+        email = ""
+    )
+    val currentUserProfile = allUsers.find { it.uid == userId } ?: RealUser(
+        uid = userId,
+        name = "User",
+        email = ""
+    )
     val chatId = if (userId < peerId) "${userId}_${peerId}" else "${peerId}_${userId}"
     var text by remember { mutableStateOf(drafts[chatId] ?: "") }
     val msgs = remember { mutableStateListOf<UniversalMessage>() }
@@ -3122,8 +3130,8 @@ private fun SmartChatDetailScreen(
     }
 
     DisposableEffect(chatId, userClearedAt, userDeletedAt) {
-        // Clear unread count when opening chat
-        db.collection("chats").document(chatId).update("unreadCount_$userId", 0)
+        // Clear unread count when opening chat safely
+        db.collection("chats").document(chatId).set(mapOf("unreadCount_$userId" to 0), SetOptions.merge())
         
         val settingsListener = db.collection("users").document(userId).collection("chatSettings").document(chatId)
             .addSnapshotListener { d, _ ->
@@ -3220,9 +3228,13 @@ private fun SmartChatDetailScreen(
                         isStarred = d.getBoolean("isStarred") ?: false,
                         isDeleted = d.getBoolean("isDeleted") ?: false,
                         deleteForEveryone = d.getBoolean("deleteForEveryone") ?: false,
-                        deletedFor = d.get("deletedFor") as? List<String> ?: emptyList(),
+                        deletedFor = (d.get("deletedFor") as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
                         editedAt = d.getLong("editedAt"),
-                        reactions = d.get("reactions") as? Map<String, String> ?: emptyMap(),
+                        reactions = (d.get("reactions") as? Map<*, *>)?.mapNotNull { (k, v) ->
+                            val key = k?.toString() ?: return@mapNotNull null
+                            val value = v?.toString() ?: return@mapNotNull null
+                            key to value
+                        }?.toMap() ?: emptyMap(),
                         liveLocationExpiry = d.getLong("liveLocationExpiry"),
                         isRead = d.getBoolean("isRead") ?: false,
                         fileName = d.getString("fileName"),
@@ -3232,8 +3244,12 @@ private fun SmartChatDetailScreen(
                         durationMs = d.getLong("durationMs") ?: 0L,
                         // Poll
                         pollQuestion = d.getString("pollQuestion"),
-                        pollOptions = d.get("pollOptions") as? List<String> ?: emptyList(),
-                        pollVotes = d.get("pollVotes") as? Map<String, List<String>> ?: emptyMap(),
+                        pollOptions = (d.get("pollOptions") as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
+                        pollVotes = (d.get("pollVotes") as? Map<*, *>)?.mapNotNull { (k, v) ->
+                            val key = k?.toString() ?: return@mapNotNull null
+                            val list = (v as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+                            key to list
+                        }?.toMap() ?: emptyMap(),
                         allowMultipleAnswers = d.getBoolean("allowMultipleAnswers") ?: false,
                         interactionAttempts = (d.get("interactionAttempts") as? Map<*, *>)?.mapNotNull { (k, v) ->
                             val key = k?.toString() ?: return@mapNotNull null
@@ -3255,7 +3271,11 @@ private fun SmartChatDetailScreen(
                         eventDescription = d.getString("eventDescription"),
                         eventStartAt = d.getLong("eventStartAt") ?: 0L,
                         eventLocation = d.getString("eventLocation"),
-                        eventRSVPs = d.get("eventRSVPs") as? Map<String, List<String>> ?: emptyMap()
+                        eventRSVPs = (d.get("eventRSVPs") as? Map<*, *>)?.mapNotNull { (k, v) ->
+                            val key = k?.toString() ?: return@mapNotNull null
+                            val list = (v as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+                            key to list
+                        }?.toMap() ?: emptyMap()
                     )
 
                     when (dc.type) {
