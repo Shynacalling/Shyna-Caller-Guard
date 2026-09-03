@@ -120,8 +120,10 @@ class StatusUploadWorker(context: Context, params: WorkerParameters) : Coroutine
         return try {
             if (pathOrUriStr.startsWith("content://") || pathOrUriStr.startsWith("file://")) {
                 val uri = Uri.parse(pathOrUriStr)
+                val mime = context.contentResolver.getType(uri) ?: ""
+                val isVideo = mime.startsWith("video") || pathOrUriStr.contains("video") || pathOrUriStr.endsWith(".mp4") || pathOrUriStr.endsWith(".mov") || pathOrUriStr.endsWith(".3gp")
+                val ext = if (isVideo) ".mp4" else ".jpg"
                 val inputStream = context.contentResolver.openInputStream(uri) ?: return null
-                val ext = if (pathOrUriStr.contains("video")) ".mp4" else ".jpg"
                 val tempFile = File(context.cacheDir, "status_upload_${System.currentTimeMillis()}$ext")
                 tempFile.outputStream().use { output ->
                     inputStream.copyTo(output)
@@ -139,33 +141,48 @@ class StatusUploadWorker(context: Context, params: WorkerParameters) : Coroutine
 
     private suspend fun uploadToCloudinary(filePath: String): String? = suspendCancellableCoroutine { continuation ->
         try {
-            MediaManager.get().upload(filePath)
+            val isVideo = filePath.endsWith(".mp4", ignoreCase = true) || 
+                          filePath.endsWith(".3gp", ignoreCase = true) || 
+                          filePath.endsWith(".mov", ignoreCase = true) || 
+                          filePath.endsWith(".mkv", ignoreCase = true) ||
+                          filePath.contains("video", ignoreCase = true)
+
+            val uploadRequest = MediaManager.get().upload(filePath)
                 .unsigned(CloudinaryConfig.UPLOAD_PRESET)
-                .callback(object : UploadCallback {
-                    override fun onStart(requestId: String) {}
-                    override fun onProgress(requestId: String, bytes: Long, totalBytes: Long) {}
 
-                    override fun onSuccess(requestId: String, resultData: Map<*, *>) {
-                        val secureUrl = resultData["secure_url"] as? String
-                        if (continuation.isActive) {
-                            continuation.resume(secureUrl)
-                        }
-                    }
+            if (isVideo) {
+                uploadRequest.option("resource_type", "video")
+            } else {
+                uploadRequest.option("resource_type", "auto")
+            }
 
-                    override fun onError(requestId: String, error: ErrorInfo) {
-                        Log.e(TAG, "Cloudinary upload error: ${error.description}")
-                        if (continuation.isActive) {
-                            continuation.resume(null)
-                        }
-                    }
+            uploadRequest.callback(object : UploadCallback {
+                override fun onStart(requestId: String) {}
+                override fun onProgress(requestId: String, bytes: Long, totalBytes: Long) {}
 
-                    override fun onReschedule(requestId: String, error: ErrorInfo) {
-                        if (continuation.isActive) {
-                            continuation.resume(null)
-                        }
+                override fun onSuccess(requestId: String, resultData: Map<*, *>) {
+                    var secureUrl = resultData["secure_url"] as? String
+                    if (secureUrl != null && isVideo && !secureUrl.endsWith(".mp4", ignoreCase = true)) {
+                        secureUrl = secureUrl.replace(Regex("\\.[a-zA-Z0-9]+$"), ".mp4")
                     }
-                })
-                .dispatch()
+                    if (continuation.isActive) {
+                        continuation.resume(secureUrl)
+                    }
+                }
+
+                override fun onError(requestId: String, error: ErrorInfo) {
+                    Log.e(TAG, "Cloudinary upload error: ${error.description}")
+                    if (continuation.isActive) {
+                        continuation.resume(null)
+                    }
+                }
+
+                override fun onReschedule(requestId: String, error: ErrorInfo) {
+                    if (continuation.isActive) {
+                        continuation.resume(null)
+                    }
+                }
+            }).dispatch()
         } catch (e: Exception) {
             Log.e(TAG, "Error starting Cloudinary upload: ${e.message}", e)
             if (continuation.isActive) {

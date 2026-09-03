@@ -46,6 +46,7 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.example.callruleblocker.data.StatusBackendManager
 import com.example.callruleblocker.data.StatusLocalStore
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.delay
@@ -590,12 +591,14 @@ fun FullscreenStatusViewerScreen(
                                             val chatId = listOf(currentUser.uid, currentGroup.userId).sorted().joinToString("_")
                                             val msgData = mapOf(
                                                 "id" to UUID.randomUUID().toString(),
+                                                "text" to textToSend,
+                                                "content" to textToSend,
                                                 "senderId" to currentUser.uid,
                                                 "receiverId" to currentGroup.userId,
-                                                "content" to textToSend,
-                                                "type" to "TEXT",
-                                                "status" to "SENT",
-                                                "timestamp" to System.currentTimeMillis(),
+                                                "type" to MessageType.TEXT.name,
+                                                "status" to MessageStatus.SENT.name,
+                                                "timestamp" to Timestamp.now(),
+                                                "sentAt" to System.currentTimeMillis(),
                                                 "quotedStatusId" to currentStatus.id,
                                                 "quotedStatusType" to currentStatus.type.name,
                                                 "quotedStatusMedia" to currentStatus.mediaUrl
