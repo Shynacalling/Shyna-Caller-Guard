@@ -1,5 +1,6 @@
 package com.example.callruleblocker.ui
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.provider.CalendarContract
@@ -64,6 +65,9 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.core.app.NotificationCompat
 import android.app.NotificationManager
 import android.app.NotificationChannel
+import android.content.ContentUris
+import android.content.pm.PackageManager
+import android.database.ContentObserver
 import android.os.Build
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -104,10 +108,13 @@ import android.location.Geocoder
 import android.provider.ContactsContract
 import android.provider.MediaStore
 import android.graphics.Bitmap
+import android.os.Handler
+import android.os.Looper
 import android.util.Size
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
 import androidx.work.*
 import com.example.callruleblocker.data.DiscoveryWorker
 import com.google.android.gms.location.LocationServices
@@ -8650,13 +8657,30 @@ private fun PremiumGalleryScreen(onBack: () -> Unit, onMediaSelected: (List<Pair
     val mContext = LocalContext.current
     val mediaItems = remember { mutableStateListOf<GalleryMedia>() }
     val selectedMedia = remember { mutableStateListOf<GalleryMedia>() }
-    var selectedTab by remember { mutableStateOf("Albums") }
+    var selectedTab by remember { mutableStateOf("All") }
     var selectedAlbum by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
     var sortByName by remember { mutableStateOf(false) }
     
-    LaunchedEffect(Unit) {
+    var hasPermission by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(mContext, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(mContext, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+            } else {
+                ContextCompat.checkSelfPermission(mContext, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+            }
+        )
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        hasPermission = results.values.any { it }
+    }
+
+    fun loadMedia() {
         val allMedia = mutableListOf<GalleryMedia>()
         val projection = arrayOf(
             android.provider.MediaStore.MediaColumns._ID,
@@ -8673,46 +8697,76 @@ private fun PremiumGalleryScreen(onBack: () -> Unit, onMediaSelected: (List<Pair
         )
         val sortOrder = "${android.provider.MediaStore.MediaColumns.DATE_ADDED} DESC"
         
-        // Images
-        mContext.contentResolver.query(
-            android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            projection, null, null, sortOrder
-        )?.use { cursor ->
-            val idCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.MediaColumns._ID)
-            val nameCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.MediaColumns.DISPLAY_NAME)
-            val dateCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.MediaColumns.DATE_ADDED)
-            val albumCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.MediaColumns.BUCKET_DISPLAY_NAME)
-            while (cursor.moveToNext()) {
-                val id = cursor.getLong(idCol)
-                val uri = android.content.ContentUris.withAppendedId(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
-                allMedia.add(GalleryMedia(id, uri, cursor.getString(nameCol) ?: "", cursor.getLong(dateCol) * 1000, false, cursor.getString(albumCol) ?: "Internal"))
+        runCatching {
+            // Images
+            mContext.contentResolver.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                projection, null, null, sortOrder
+            )?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+                val dateCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
+                val albumCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.BUCKET_DISPLAY_NAME)
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idCol)
+                    val uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+                    allMedia.add(GalleryMedia(id, uri, cursor.getString(nameCol) ?: "", cursor.getLong(dateCol) * 1000, false, cursor.getString(albumCol) ?: "Internal"))
+                }
             }
-        }
-        
-        // Videos
-        mContext.contentResolver.query(
-            android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-            videoProjection, null, null, sortOrder
-        )?.use { cursor ->
-            val idCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.MediaColumns._ID)
-            val nameCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.MediaColumns.DISPLAY_NAME)
-            val dateCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.MediaColumns.DATE_ADDED)
-            val albumCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.MediaColumns.BUCKET_DISPLAY_NAME)
-            val durCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Video.Media.DURATION)
-            while (cursor.moveToNext()) {
-                val id = cursor.getLong(idCol)
-                val uri = android.content.ContentUris.withAppendedId(android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
-                allMedia.add(GalleryMedia(
-                    id, uri, cursor.getString(nameCol) ?: "", 
-                    cursor.getLong(dateCol) * 1000, true, 
-                    cursor.getString(albumCol) ?: "Internal",
-                    cursor.getLong(durCol)
-                ))
+            
+            // Videos
+            mContext.contentResolver.query(
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                videoProjection, null, null, sortOrder
+            )?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+                val dateCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
+                val albumCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.BUCKET_DISPLAY_NAME)
+                val durCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idCol)
+                    val uri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
+                    allMedia.add(GalleryMedia(
+                        id, uri, cursor.getString(nameCol) ?: "", 
+                        cursor.getLong(dateCol) * 1000, true, 
+                        cursor.getString(albumCol) ?: "Internal",
+                        cursor.getLong(durCol)
+                    ))
+                }
             }
         }
         
         mediaItems.clear()
         mediaItems.addAll(allMedia.sortedByDescending { it.dateAdded })
+    }
+
+    LaunchedEffect(hasPermission) {
+        if (hasPermission) {
+            loadMedia()
+        } else {
+            val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
+            } else {
+                arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
+            permissionLauncher.launch(perms)
+        }
+    }
+
+    DisposableEffect(mContext) {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                if (hasPermission) loadMedia()
+            }
+        }
+        runCatching {
+            mContext.contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, observer)
+            mContext.contentResolver.registerContentObserver(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true, observer)
+        }
+        onDispose {
+            runCatching { mContext.contentResolver.unregisterContentObserver(observer) }
+        }
     }
 
     val filteredMedia = remember(mediaItems.size, selectedTab, selectedAlbum, searchQuery, sortByName) {
@@ -8851,10 +8905,10 @@ private fun PremiumGalleryScreen(onBack: () -> Unit, onMediaSelected: (List<Pair
         // BOTTOM BAR
         Surface(color = Color(0xFF1E1E1E), modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))) {
             Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                GalleryTabItem("Albums", Icons.Default.PhotoLibrary, selectedTab == "Albums") { selectedTab = "Albums"; selectedAlbum = null; isSearchActive = false }
+                GalleryTabItem("All", Icons.Default.GridView, selectedTab == "All") { selectedTab = "All"; selectedAlbum = null; isSearchActive = false }
                 GalleryTabItem("Pictures", Icons.Default.Image, selectedTab == "Pictures") { selectedTab = "Pictures"; isSearchActive = false }
                 GalleryTabItem("Videos", Icons.Default.VideoLibrary, selectedTab == "Videos") { selectedTab = "Videos"; isSearchActive = false }
-                GalleryTabItem("Search", Icons.Default.Search, isSearchActive) { isSearchActive = !isSearchActive }
+                GalleryTabItem("Albums", Icons.Default.PhotoLibrary, selectedTab == "Albums") { selectedTab = "Albums"; selectedAlbum = null; isSearchActive = false }
             }
         }
     }
