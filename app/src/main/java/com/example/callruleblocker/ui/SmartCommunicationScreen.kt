@@ -1394,15 +1394,20 @@ private fun SmartCommunicationContent(
         }
 
         val currentUserObj = allUsers.find { it.uid == currentUid }
+        val effectiveUser = currentUserObj ?: RealUser(
+            uid = currentUid ?: "",
+            name = auth.currentUser?.displayName ?: "User",
+            email = auth.currentUser?.email ?: ""
+        )
 
         if (showStatusPrivacyDialog) {
             StatusPrivacyDialog(onDismiss = { showStatusPrivacyDialog = false })
         }
 
-        if (showTextStatusComposer && currentUserObj != null) {
+        if (showTextStatusComposer) {
             Box(Modifier.fillMaxSize().background(Color.Black).clickable(enabled = false) {}) {
                 TextAndLinkStatusComposer(
-                    currentUser = currentUserObj,
+                    currentUser = effectiveUser,
                     onBack = { showTextStatusComposer = false },
                     onPublished = {
                         showTextStatusComposer = false
@@ -1412,10 +1417,10 @@ private fun SmartCommunicationContent(
             }
         }
 
-        if (selectedMediaForStatus != null && currentUserObj != null) {
+        if (selectedMediaForStatus != null) {
             Box(Modifier.fillMaxSize().background(Color.Black).clickable(enabled = false) {}) {
                 PhotoVideoStatusComposer(
-                    currentUser = currentUserObj,
+                    currentUser = effectiveUser,
                     mediaUri = selectedMediaForStatus!!,
                     isVideo = isMediaVideoForStatus,
                     onBack = { selectedMediaForStatus = null },
@@ -1427,11 +1432,11 @@ private fun SmartCommunicationContent(
             }
         }
 
-        if (showMyStatusManager && currentUserObj != null) {
+        if (showMyStatusManager) {
             val myStatuses = allStatuses.filter { it.userId == currentUid && it.expiresAt > System.currentTimeMillis() && (it.deletedAt == null || it.deletedAt == 0L) }
             Box(Modifier.fillMaxSize().background(ShynaDesign.colors.PrimaryBg).clickable(enabled = false) {}) {
                 MyStatusManagementScreen(
-                    currentUser = currentUserObj,
+                    currentUser = effectiveUser,
                     userStatuses = myStatuses,
                     onBack = { showMyStatusManager = false },
                     onAddMoreStatus = {
@@ -1458,7 +1463,7 @@ private fun SmartCommunicationContent(
             }
         }
 
-        if (showStatusViewerGroupIndex != null && currentUserObj != null) {
+        if (showStatusViewerGroupIndex != null) {
             val activeGroups = allStatuses.filter { it.expiresAt > System.currentTimeMillis() && (it.deletedAt == null || it.deletedAt == 0L) }
                 .groupBy { it.userId }
                 .mapNotNull { (uId, list) ->
@@ -1476,7 +1481,7 @@ private fun SmartCommunicationContent(
                     FullscreenStatusViewerScreen(
                         groups = activeGroups,
                         initialGroupIndex = showStatusViewerGroupIndex!!.coerceIn(0, activeGroups.size - 1),
-                        currentUser = currentUserObj,
+                        currentUser = effectiveUser,
                         onClose = { showStatusViewerGroupIndex = null }
                     )
                 }
@@ -5947,6 +5952,8 @@ private fun MeetingsHubContent(
 ) {
     val context = LocalContext.current
     val db = FirebaseFirestore.getInstance()
+    val activeUid = userId.ifBlank { FirebaseAuth.getInstance().currentUser?.uid ?: "" }
+
     var hostedMeetings by remember { mutableStateOf<List<MeetingItem>>(emptyList()) }
     var invitedMeetings by remember { mutableStateOf<List<MeetingItem>>(emptyList()) }
     var showNewMeeting by remember { mutableStateOf(false) }
@@ -5956,10 +5963,10 @@ private fun MeetingsHubContent(
     var meetingActionBusy by remember { mutableStateOf(false) }
     var selectedMeetingTab by rememberSaveable { mutableIntStateOf(0) }
 
-    val currentUser = remember(allUsers, userId) { allUsers.find { it.uid == userId } }
-    val pmi = remember(userId) {
-        val digits = userId.filter { it.isDigit() }
-        val seed = userId.hashCode().toLong().let { if (it < 0) -it else it }.toString()
+    val currentUser = remember(allUsers, activeUid) { allUsers.find { it.uid == activeUid } }
+    val pmi = remember(activeUid) {
+        val digits = activeUid.filter { it.isDigit() }
+        val seed = activeUid.hashCode().toLong().let { if (it < 0) -it else it }.toString()
         val raw = if (digits.length >= 10) digits.take(10) else (seed + "9876543210").padEnd(10, '8').take(10)
         "${raw.substring(0, 3)} ${raw.substring(3, 6)} ${raw.substring(6, 10)}"
     }
@@ -5972,11 +5979,11 @@ private fun MeetingsHubContent(
         }
     }
 
-    DisposableEffect(userId) {
-        if (userId.isBlank()) return@DisposableEffect onDispose { }
+    DisposableEffect(activeUid) {
+        if (activeUid.isBlank()) return@DisposableEffect onDispose { }
 
         val invitedRegistration = db.collection("meetings")
-            .whereArrayContains("invitees", userId)
+            .whereArrayContains("invitees", activeUid)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.e(TAG, "MEETING_INVITED_LISTENER_FAILED", error)
@@ -5986,7 +5993,7 @@ private fun MeetingsHubContent(
             }
 
         val hostedRegistration = db.collection("meetings")
-            .whereEqualTo("hostUid", userId)
+            .whereEqualTo("hostUid", activeUid)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.e(TAG, "MEETING_HOSTED_LISTENER_FAILED", error)
@@ -6087,27 +6094,30 @@ private fun MeetingsHubContent(
                 onBack = {
                     showNewMeeting = false
                     shareScreenAfterCreate = false
+                    meetingActionBusy = false
                 },
                 onStart = { requestedId, passcode, videoOn, microphoneOn ->
                     if (meetingActionBusy) return@NewMeetingScreen
                     
                     val auth = FirebaseAuth.getInstance()
-                    val user = auth.currentUser
-                    if (user == null || userId.isBlank()) {
+                    val user = auth.currentUser ?: FirebaseAuth.getInstance().currentUser
+                    val effectiveUid = user?.uid ?: activeUid
+                    if (effectiveUid.isBlank()) {
                         Toast.makeText(context, "Please login again to continue.", Toast.LENGTH_LONG).show()
+                        meetingActionBusy = false
                         return@NewMeetingScreen
                     }
                     
                     meetingActionBusy = true
                     val cleanId = requestedId.filter { it.isDigit() }
                     
-                    Log.d("ShynaMeeting", "START_MEETING: id=$cleanId uid=${user.uid}")
+                    Log.d("ShynaMeeting", "START_MEETING: id=$cleanId uid=$effectiveUid")
                     
                     val item = MeetingItem(
                         id = cleanId,
                         meetingId = cleanId,
                         title = "${currentUser?.name ?: "User"}'s Shyna Meeting",
-                        hostUid = user.uid,
+                        hostUid = effectiveUid,
                         hostName = currentUser?.name ?: "Host",
                         passcode = passcode,
                         hostVideoOn = videoOn,
@@ -6115,7 +6125,7 @@ private fun MeetingsHubContent(
                         status = "LIVE",
                         startAt = System.currentTimeMillis(),
                         actualStartTime = System.currentTimeMillis(),
-                        invitees = listOf(user.uid),
+                        invitees = listOf(effectiveUid),
                         updatedAt = System.currentTimeMillis()
                     )
                     
@@ -6164,12 +6174,17 @@ private fun MeetingsHubContent(
         if (showJoinMeeting) {
             JoinMeetingScreen(
                 initialName = currentUser?.name ?: "",
-                onBack = { if (!meetingActionBusy) showJoinMeeting = false },
+                onBack = { 
+                    showJoinMeeting = false 
+                    meetingActionBusy = false
+                },
                 onJoin = { rawId, passcode, noAudio, noVideo ->
                     if (meetingActionBusy) return@JoinMeetingScreen
                     val cleanId = rawId.filter { it.isDigit() }
-                    if (userId.isBlank()) {
+                    val effectiveUid = activeUid.ifBlank { FirebaseAuth.getInstance().currentUser?.uid ?: "" }
+                    if (effectiveUid.isBlank()) {
                         Toast.makeText(context, "Please login to join a meeting", Toast.LENGTH_LONG).show()
+                        meetingActionBusy = false
                         return@JoinMeetingScreen
                     }
                     meetingActionBusy = true
@@ -6234,15 +6249,19 @@ private fun MeetingsHubContent(
             ScheduleMeetingScreen(
                 pmi = pmi,
                 initialTitle = "${currentUser?.name ?: "User"}'s Scheduled Meeting",
-                onBack = { showScheduleMeeting = false },
+                onBack = { 
+                    showScheduleMeeting = false 
+                    meetingActionBusy = false
+                },
                 onDone = { scheduled ->
                     val cleanScheduledId = scheduled.meetingId.filter { it.isDigit() }
+                    val effectiveUid = activeUid.ifBlank { FirebaseAuth.getInstance().currentUser?.uid ?: "" }
                     val normalized = scheduled.copy(
                         id = cleanScheduledId,
                         meetingId = cleanScheduledId,
-                        hostUid = userId,
+                        hostUid = effectiveUid,
                         hostName = currentUser?.name ?: "Host",
-                        invitees = (scheduled.invitees + userId).distinct(),
+                        invitees = (scheduled.invitees + effectiveUid).distinct(),
                         updatedAt = System.currentTimeMillis()
                     )
                     meetingActionBusy = true
