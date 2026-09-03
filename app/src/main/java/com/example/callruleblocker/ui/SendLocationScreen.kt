@@ -3,8 +3,10 @@ package com.example.callruleblocker.ui
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.Geocoder
 import android.location.Location
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -134,6 +136,51 @@ fun SendLocationScreen(onBack: () -> Unit, onSendLocation: (String) -> Unit) {
     fun fetchNearbyPlaces() {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
 
+        currentLocation?.let { loc ->
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val geocoder = Geocoder(context, Locale.getDefault())
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        geocoder.getFromLocation(loc.latitude, loc.longitude, 8) { addresses ->
+                            val list = addresses.mapIndexed { idx, addr ->
+                                val name = addr.featureName ?: addr.thoroughfare ?: addr.subLocality ?: "Nearby Place ${idx + 1}"
+                                val addressStr = listOfNotNull(addr.thoroughfare, addr.subLocality, addr.locality, addr.adminArea).joinToString(", ")
+                                ShynaPlace(
+                                    id = "geo_$idx",
+                                    name = name,
+                                    address = if (addressStr.isNotBlank()) addressStr else "Near current position",
+                                    latLng = LatLng(addr.latitude, addr.longitude)
+                                )
+                            }.distinctBy { it.name }
+                            if (list.isNotEmpty()) {
+                                nearbyPlaces = list
+                            }
+                        }
+                    } else {
+                        @Suppress("DEPRECATION")
+                        val addresses = geocoder.getFromLocation(loc.latitude, loc.longitude, 8)
+                        if (!addresses.isNullOrEmpty()) {
+                            val list = addresses.mapIndexed { idx, addr ->
+                                val name = addr.featureName ?: addr.thoroughfare ?: addr.subLocality ?: "Nearby Place ${idx + 1}"
+                                val addressStr = listOfNotNull(addr.thoroughfare, addr.subLocality, addr.locality, addr.adminArea).joinToString(", ")
+                                ShynaPlace(
+                                    id = "geo_$idx",
+                                    name = name,
+                                    address = if (addressStr.isNotBlank()) addressStr else "Near current position",
+                                    latLng = LatLng(addr.latitude, addr.longitude)
+                                )
+                            }.distinctBy { it.name }
+                            if (list.isNotEmpty()) {
+                                nearbyPlaces = list
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Geocoder nearby places failed", e)
+                }
+            }
+        }
+
         val fields = listOf(Place.Field.ID, Place.Field.DISPLAY_NAME, Place.Field.LOCATION, Place.Field.FORMATTED_ADDRESS)
         val request = FindCurrentPlaceRequest.newInstance(fields)
 
@@ -152,25 +199,11 @@ fun SendLocationScreen(onBack: () -> Unit, onSendLocation: (String) -> Unit) {
                                 latLng = place.location ?: LatLng(0.0, 0.0)
                             )
                         }
-                    nearbyPlaces = list
-                }.addOnFailureListener {
-                    Log.e(TAG, "FindCurrentPlace failed, trying fallback search", it)
-                    currentLocation?.let { loc ->
-                        val bias = RectangularBounds.newInstance(
-                            LatLng(loc.latitude - 0.005, loc.longitude - 0.005),
-                            LatLng(loc.latitude + 0.005, loc.longitude + 0.005)
-                        )
-                        val autoRequest = FindAutocompletePredictionsRequest.builder()
-                            .setQuery("points of interest") 
-                            .setLocationBias(bias)
-                            .build()
-                        placesClient.findAutocompletePredictions(autoRequest).addOnSuccessListener { autoRes ->
-                             val fallbackList = autoRes.autocompletePredictions.take(10).map {
-                                 ShynaPlace(it.placeId, it.getPrimaryText(null).toString(), it.getSecondaryText(null).toString(), LatLng(loc.latitude, loc.longitude))
-                             }
-                             nearbyPlaces = fallbackList
-                        }
+                    if (list.isNotEmpty()) {
+                        nearbyPlaces = (list + nearbyPlaces).distinctBy { it.name }
                     }
+                }.addOnFailureListener {
+                    Log.e(TAG, "FindCurrentPlace failed", it)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Nearby places failed", e)
@@ -302,6 +335,8 @@ fun SendLocationScreen(onBack: () -> Unit, onSendLocation: (String) -> Unit) {
             onSelect = { durationMs ->
                 showLiveLocationDialog = false
                 val expiry = System.currentTimeMillis() + durationMs
+                val loc = currentLocation
+                val coordsStr = if (loc != null) "|${loc.latitude},${loc.longitude}" else ""
                 
                 // Start Foreground Location Service with expiry time
                 val serviceIntent = Intent(context, LocationService::class.java).apply {
@@ -311,7 +346,7 @@ fun SendLocationScreen(onBack: () -> Unit, onSendLocation: (String) -> Unit) {
                     ContextCompat.startForegroundService(context, serviceIntent)
                 }
 
-                onSendLocation("LIVE|${expiry}")
+                onSendLocation("LIVE|${expiry}${coordsStr}")
                 onBack()
             }
         )

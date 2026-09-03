@@ -128,6 +128,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.example.callruleblocker.data.LocationService
 import com.example.callruleblocker.data.StatusLocalStore
 import com.google.firebase.firestore.DocumentSnapshot
 
@@ -918,11 +919,14 @@ private fun SmartCommunicationContent(
                     )
                     
                     if (isLive) {
-                        val expiry = loc.substringAfter("|").toLongOrNull() ?: (System.currentTimeMillis() + 60 * 60 * 1000L)
+                        val parts = loc.split("|")
+                        val expiry = parts.getOrNull(1)?.toLongOrNull() ?: (System.currentTimeMillis() + 60 * 60 * 1000L)
                         msg["liveLocationExpiry"] = expiry
                         
-                        // Start Background Service for Live Location
-                        val intent = Intent(mContext, com.example.callruleblocker.data.LocationService::class.java)
+                        // Start Background Service for Live Location with expiryTime extra
+                        val intent = Intent(mContext, LocationService::class.java).apply {
+                            putExtra("expiryTime", expiry)
+                        }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                             mContext.startForegroundService(intent)
                         } else {
@@ -3825,6 +3829,7 @@ private fun SmartChatDetailScreen(
                                     }
                                 },
                                 onMediaClick = { fullScreenMedia = it },
+                                onOpenLiveLocation = { onOpenLiveLocation(it) },
                                 onPollVote = { index -> onVote(m, index) },
                                 onEventRSVP = { showRsvpFor = m },
                                 onCallAgain = { callMsg ->
@@ -4010,6 +4015,7 @@ private fun SmartChatDetailScreen(
         onLongClick: () -> Unit,
         onClick: () -> Unit,
         onMediaClick: (UniversalMessage) -> Unit,
+        onOpenLiveLocation: (UniversalMessage) -> Unit = {},
         onPollVote: (Int) -> Unit = {},
         onEventRSVP: () -> Unit = {},
         onCallAgain: (UniversalMessage) -> Unit = {}
@@ -4112,7 +4118,7 @@ private fun SmartChatDetailScreen(
                             MessageType.VOICE -> VoiceMessageBubble(m)
                             MessageType.AUDIO -> AudioMessageBubble(m)
                             MessageType.LOCATION -> LocationMessageBubble(m)
-                            MessageType.LIVE_LOCATION -> LiveLocationMessageBubble(m)
+                            MessageType.LIVE_LOCATION -> LiveLocationMessageBubble(m, onOpenLiveLocation = onOpenLiveLocation)
                             MessageType.LINK -> LinkMessageBubble(m)
                             MessageType.DOC -> DocMessageBubble(m)
                             MessageType.CONTACT -> ContactMessageBubble(m)

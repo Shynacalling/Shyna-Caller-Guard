@@ -276,8 +276,20 @@ fun LiveLocationMessageBubble(
         }
     }
 
-    val lat = livePos?.first ?: 0.0
-    val lon = livePos?.second ?: 0.0
+    val initialCoords = remember(m.metadata) {
+        val parts = m.metadata?.split("|") ?: emptyList()
+        val coordsStr = parts.getOrNull(2)
+        if (!coordsStr.isNullOrBlank() && coordsStr.contains(",")) {
+            val latLng = coordsStr.split(",")
+            val latVal = latLng.getOrNull(0)?.toDoubleOrNull() ?: 0.0
+            val lngVal = latLng.getOrNull(1)?.toDoubleOrNull() ?: 0.0
+            if (latVal != 0.0 || lngVal != 0.0) Pair(latVal, lngVal) else null
+        } else null
+    }
+
+    val effectivePos = livePos ?: initialCoords
+    val lat = effectivePos?.first ?: 0.0
+    val lon = effectivePos?.second ?: 0.0
     val hasCoords = lat != 0.0 || lon != 0.0
 
     Column(
