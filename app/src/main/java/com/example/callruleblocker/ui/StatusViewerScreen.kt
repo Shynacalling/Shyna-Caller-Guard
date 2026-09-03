@@ -5,6 +5,7 @@ import android.net.Uri
 import android.util.Log
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.Animatable
@@ -137,42 +138,6 @@ fun FullscreenStatusViewerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(statusIndex, groupIndex) {
-                detectTapGestures(
-                    onPress = {
-                        isPaused = true
-                        tryAwaitRelease()
-                        isPaused = false
-                    },
-                    onTap = { offset ->
-                        val screenWidth = size.width
-                        if (offset.x > screenWidth * 0.5f) {
-                            // Tap Right -> Next status / group
-                            if (statusIndex < currentGroup.statuses.size - 1) {
-                                scope.launch { progressAnimatable.snapTo(0f) }
-                                statusIndex++
-                            } else if (groupIndex < groups.size - 1) {
-                                scope.launch { progressAnimatable.snapTo(0f) }
-                                groupIndex++
-                                val nextG = groups[groupIndex]
-                                statusIndex = if (nextG.firstUnreadIndex >= 0) nextG.firstUnreadIndex else 0
-                            } else {
-                                onClose()
-                            }
-                        } else {
-                            // Tap Left -> Previous status / group
-                            if (statusIndex > 0) {
-                                scope.launch { progressAnimatable.snapTo(0f) }
-                                statusIndex--
-                            } else if (groupIndex > 0) {
-                                scope.launch { progressAnimatable.snapTo(0f) }
-                                groupIndex--
-                                statusIndex = 0
-                            }
-                        }
-                    }
-                )
-            }
     ) {
         // Main Status Media Content Renderer
         when (currentStatus.type) {
@@ -334,6 +299,49 @@ fun FullscreenStatusViewerScreen(
                 )
             }
         }
+
+        // Gesture Detector Overlay (Middle Area for Tap/Hold Navigation, leaving top/bottom bars interactive)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 80.dp, bottom = 120.dp)
+                .pointerInput(statusIndex, groupIndex) {
+                    detectTapGestures(
+                        onPress = {
+                            isPaused = true
+                            tryAwaitRelease()
+                            isPaused = false
+                        },
+                        onTap = { offset ->
+                            val screenWidth = size.width
+                            if (offset.x > screenWidth * 0.5f) {
+                                // Tap Right -> Next status / group
+                                if (statusIndex < currentGroup.statuses.size - 1) {
+                                    scope.launch { progressAnimatable.snapTo(0f) }
+                                    statusIndex++
+                                } else if (groupIndex < groups.size - 1) {
+                                    scope.launch { progressAnimatable.snapTo(0f) }
+                                    groupIndex++
+                                    val nextG = groups[groupIndex]
+                                    statusIndex = if (nextG.firstUnreadIndex >= 0) nextG.firstUnreadIndex else 0
+                                } else {
+                                    onClose()
+                                }
+                            } else {
+                                // Tap Left -> Previous status / group
+                                if (statusIndex > 0) {
+                                    scope.launch { progressAnimatable.snapTo(0f) }
+                                    statusIndex--
+                                } else if (groupIndex > 0) {
+                                    scope.launch { progressAnimatable.snapTo(0f) }
+                                    groupIndex--
+                                    statusIndex = 0
+                                }
+                            }
+                        }
+                    )
+                }
+        )
 
         // Overlay Controls (Hidden when long-pressing)
         AnimatedVisibility(
@@ -526,11 +534,16 @@ fun FullscreenStatusViewerScreen(
                                         .size(38.dp)
                                         .clickable {
                                             scope.launch {
-                                                StatusBackendManager.toggleStatusLike(
-                                                    currentStatus.id,
-                                                    currentUser.uid,
-                                                    true
-                                                )
+                                                try {
+                                                    StatusBackendManager.toggleStatusLike(
+                                                        currentStatus.id,
+                                                        currentUser.uid,
+                                                        true
+                                                    )
+                                                    Toast.makeText(context, "Reaction $emoji sent!", Toast.LENGTH_SHORT).show()
+                                                } catch (e: Exception) {
+                                                    Log.e("StatusViewer", "Like error: ${e.message}")
+                                                }
                                             }
                                         }
                                 ) {
@@ -548,7 +561,10 @@ fun FullscreenStatusViewerScreen(
                         ) {
                             OutlinedTextField(
                                 value = replyText,
-                                onValueChange = { replyText = it },
+                                onValueChange = { 
+                                    replyText = it
+                                    isPaused = it.isNotEmpty()
+                                },
                                 placeholder = { Text("Reply to ${currentGroup.userName}...", color = Color.White.copy(alpha = 0.6f)) },
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedTextColor = Color.White,
@@ -567,24 +583,29 @@ fun FullscreenStatusViewerScreen(
                                     if (replyText.trim().isEmpty()) return@IconButton
                                     val textToSend = replyText.trim()
                                     replyText = ""
+                                    isPaused = false
                                     scope.launch {
-                                        // Send private chat message with status reference
-                                        val db = FirebaseFirestore.getInstance()
-                                        val chatId = listOf(currentUser.uid, currentGroup.userId).sorted().joinToString("_")
-                                        val msgData = mapOf(
-                                            "id" to UUID.randomUUID().toString(),
-                                            "senderId" to currentUser.uid,
-                                            "receiverId" to currentGroup.userId,
-                                            "content" to textToSend,
-                                            "type" to "TEXT",
-                                            "status" to "SENT",
-                                            "timestamp" to System.currentTimeMillis(),
-                                            "quotedStatusId" to currentStatus.id,
-                                            "quotedStatusType" to currentStatus.type.name,
-                                            "quotedStatusMedia" to currentStatus.mediaUrl
-                                        )
-                                        db.collection("chats").document(chatId)
-                                            .collection("messages").add(msgData)
+                                        try {
+                                            val db = FirebaseFirestore.getInstance()
+                                            val chatId = listOf(currentUser.uid, currentGroup.userId).sorted().joinToString("_")
+                                            val msgData = mapOf(
+                                                "id" to UUID.randomUUID().toString(),
+                                                "senderId" to currentUser.uid,
+                                                "receiverId" to currentGroup.userId,
+                                                "content" to textToSend,
+                                                "type" to "TEXT",
+                                                "status" to "SENT",
+                                                "timestamp" to System.currentTimeMillis(),
+                                                "quotedStatusId" to currentStatus.id,
+                                                "quotedStatusType" to currentStatus.type.name,
+                                                "quotedStatusMedia" to currentStatus.mediaUrl
+                                            )
+                                            db.collection("chats").document(chatId)
+                                                .collection("messages").add(msgData).await()
+                                            Toast.makeText(context, "Reply sent!", Toast.LENGTH_SHORT).show()
+                                        } catch (e: Exception) {
+                                            Log.e("StatusViewer", "Reply error: ${e.message}")
+                                        }
                                     }
                                 }
                             ) {

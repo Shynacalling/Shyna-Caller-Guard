@@ -332,11 +332,16 @@ fun AppCallScreen(callId: String, isIncoming: Boolean, autoAcceptState: State<Bo
     
     SideEffect { joinCallLambda = joinCall; routeAudioLambda = routeAudio }
 
-    // Handle Auto-Accept from Notification
-    LaunchedEffect(autoAccept, call?.status) {
-        if (autoAccept && isIncoming && call?.status == AppCallStatus.RINGING) {
+    // Handle Auto-Accept from Notification or Screen
+    LaunchedEffect(autoAccept, isIncoming, call?.status) {
+        if (isIncoming && autoAccept) {
             hasAcceptedIncoming = true
-            callManager.callAction(callId, "accept")
+            if (call?.status == AppCallStatus.RINGING) {
+                callManager.callAction(callId, "accept")
+            }
+            joinCall()
+        } else if (isIncoming && (call?.status == AppCallStatus.ACCEPTED || call?.status == AppCallStatus.CONNECTED)) {
+            hasAcceptedIncoming = true
             joinCall()
         }
     }

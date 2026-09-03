@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.telecom.Call
 import android.telecom.VideoProfile
+import com.example.callruleblocker.call.AppCallService
 import com.example.callruleblocker.call.CallControlCenter
 import com.example.callruleblocker.call.CallHolder
 
@@ -55,6 +56,9 @@ class CallActionReceiver : BroadcastReceiver() {
             "com.example.callruleblocker.action.DECLINE_APP_CALL" -> {
                 val callId = intent.getStringExtra("callId") ?: return
                 android.util.Log.d("ShynaCall", "CALL_DECLINED_VIA_RECEIVER id=$callId")
+                
+                // Stop ringing service immediately
+                AppCallService.stop(context)
                 
                 // 1. Update signaling first (Most critical)
                 com.example.callruleblocker.call.CallSignalingManager.updateCallStatus(callId, com.example.callruleblocker.call.AppCallStatus.DECLINED, "user_decline_receiver")
