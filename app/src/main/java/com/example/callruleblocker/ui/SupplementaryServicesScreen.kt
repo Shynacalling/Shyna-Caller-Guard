@@ -1,5 +1,6 @@
 package com.example.callruleblocker.ui
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
@@ -107,6 +108,7 @@ private fun SupplementaryRow(
     }
 }
 
+@SuppressLint("MissingPermission")
 private fun readActiveSims(context: Context): List<SimServiceInfo> {
     return runCatching {
         val manager = context.getSystemService(SubscriptionManager::class.java)
