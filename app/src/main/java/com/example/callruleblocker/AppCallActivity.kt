@@ -63,6 +63,7 @@ import androidx.lifecycle.lifecycleScope
 import coil.compose.AsyncImage
 import com.example.callruleblocker.call.*
 import com.example.callruleblocker.ui.ShynaDesign
+import com.example.callruleblocker.ui.WhiteboardScreen
 import com.example.callruleblocker.ui.ShynaTheme
 import com.example.callruleblocker.ui.ThemeMode
 import com.example.callruleblocker.ui.VideoRenderer
@@ -182,6 +183,7 @@ fun AppCallScreen(callId: String, isIncoming: Boolean, autoAcceptState: State<Bo
     // UI for every other invited participant.
     var hasAcceptedIncoming by remember(callId) { mutableStateOf(!isIncoming) }
     var showParticipants by remember { mutableStateOf(false) }
+    var showWhiteboard by remember { mutableStateOf(false) }
     
     val callManager = remember { LiveKitCallManager(context) }
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -583,7 +585,8 @@ fun AppCallScreen(callId: String, isIncoming: Boolean, autoAcceptState: State<Bo
                             },
                             onSwitchCamera = { (room?.localParticipant?.getTrackPublication(io.livekit.android.room.track.Track.Source.CAMERA)?.track as? io.livekit.android.room.track.LocalVideoTrack)?.switchCamera(); isFrontCamera = !isFrontCamera },
                             onEndCall = endCurrentCall,
-                            onShowParticipants = { showParticipants = true }
+                            onShowParticipants = { showParticipants = true },
+                            onShowWhiteboard = { showWhiteboard = true }
                         )
                     } else {
                         VoiceCallUI(
@@ -617,6 +620,13 @@ fun AppCallScreen(callId: String, isIncoming: Boolean, autoAcceptState: State<Bo
             ZoomParticipantsBottomSheet(
                 room = room!!,
                 onDismiss = { showParticipants = false }
+            )
+        }
+
+        if (showWhiteboard) {
+            WhiteboardScreen(
+                meetingId = callId,
+                onClose = { showWhiteboard = false }
             )
         }
     }
@@ -787,7 +797,8 @@ fun VideoCallUI(
     onScreenShareToggle: (Boolean) -> Unit,
     onSwitchCamera: () -> Unit,
     onEndCall: () -> Unit,
-    onShowParticipants: () -> Unit
+    onShowParticipants: () -> Unit,
+    onShowWhiteboard: () -> Unit
 ) {
     val peerName = if (isIncoming) call.callerName else call.receiverName
     val mContext = LocalContext.current
@@ -914,7 +925,7 @@ fun VideoCallUI(
                     }
                 }
                 // 2. Whiteboard / Pen
-                IconButton(onClick = { Toast.makeText(mContext, "Whiteboard active", Toast.LENGTH_SHORT).show() }, modifier = Modifier.size(36.dp)) {
+                IconButton(onClick = onShowWhiteboard, modifier = Modifier.size(36.dp)) {
                     Icon(Icons.Default.Edit, contentDescription = "Whiteboard", tint = Color.White, modifier = Modifier.size(20.dp))
                 }
                 // 3. Sparkles / Effects
