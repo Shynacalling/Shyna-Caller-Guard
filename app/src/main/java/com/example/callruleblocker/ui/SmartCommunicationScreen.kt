@@ -1233,7 +1233,14 @@ private fun SmartCommunicationContent(
                                 recentChats = filteredChats, 
                                 customLists = customLists, 
                                 isArchivedMode = archivedOpen,
-                                onOpen = { selectedPeerId = it },
+                                onOpen = { peerUid ->
+                                    val target = allUsers.find { it.uid == peerUid }
+                                    if (target == null || target.name.isBlank() || target.name.contains("deactivated", true)) {
+                                        Toast.makeText(mContext, "This user account has been deleted or deactivated", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        selectedPeerId = peerUid
+                                    }
+                                },
                                 onAvatarClick = { showFullDPUser = it },
                                 onToggleFav = { id -> 
                                     if (favouriteChatIds.contains(id)) favouriteChatIds.remove(id) 
@@ -5696,7 +5703,7 @@ private fun CallsListContent(userId: String, allUsers: List<RealUser>, searchQue
 
     val searchResultsFromUsers = remember(allUsers, searchQuery) {
         if (searchQuery.isEmpty()) emptyList<RealUser>()
-        else allUsers.filter { it.name.lowercase().contains(searchQuery.lowercase()) && it.uid != userId }
+        else allUsers.filter { it.name.lowercase().contains(searchQuery.lowercase()) && it.uid != userId && it.name.isNotBlank() && !it.name.contains("deactivated", true) }
     }
     
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
