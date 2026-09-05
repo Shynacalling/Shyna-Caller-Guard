@@ -73,6 +73,16 @@ object CallSignalingManager {
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                if (!isGroup && receiverUid.isNotBlank()) {
+                    val receiverDoc = runCatching { db.collection("users").document(receiverUid).get().await() }.getOrNull()
+                    if (receiverDoc == null || !receiverDoc.exists()) {
+                        withContext(Dispatchers.Main) {
+                            onError(IllegalStateException("This user account no longer exists or has been deleted."))
+                        }
+                        return@launch
+                    }
+                }
+
                 val manager = LiveKitCallManager(context)
                 // Start backend creation and Firestore lookup in parallel if possible
                 val result = manager.createCall(receiverUid, type, isGroup, participantIds)
