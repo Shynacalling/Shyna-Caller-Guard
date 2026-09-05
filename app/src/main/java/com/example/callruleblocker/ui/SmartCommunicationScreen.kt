@@ -3636,6 +3636,35 @@ private fun SmartChatDetailScreen(
                     },
                     navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, null, tint = ShynaDesign.colors.TextPrimary) } },
                     actions = {
+                        // Instant Shyna Meeting Button
+                        IconButton(onClick = {
+                            if (isPeerBlocked) {
+                                Toast.makeText(mContext, "Unblock contact to start meeting", Toast.LENGTH_SHORT).show()
+                                return@IconButton
+                            }
+                            peer?.let { p ->
+                                val meetingId = "8457" + (1000..9999).random()
+                                val callId = "MEETING_$meetingId"
+                                CallSignalingManager.startMeeting(
+                                    context = mContext,
+                                    hostUid = userId,
+                                    hostName = currentUserProfile.name,
+                                    hostPhoto = currentUserProfile.photoUrl,
+                                    meetingId = meetingId,
+                                    title = "${currentUserProfile.name}'s Shyna Meeting",
+                                    type = AppCallType.VIDEO,
+                                    onCreated = { call ->
+                                        mContext.startActivity(Intent(mContext, AppCallActivity::class.java).apply {
+                                            putExtra("callId", call.id)
+                                            putExtra("isIncoming", false)
+                                            putExtra("isMeeting", true)
+                                        })
+                                    },
+                                    onError = { e -> Toast.makeText(mContext, "Unable to start meeting: ${e.message}", Toast.LENGTH_SHORT).show() }
+                                )
+                            }
+                        }) { Icon(Icons.Default.VideoCall, contentDescription = "Start Shyna Meeting", tint = ShynaDesign.colors.BrandGreen) }
+
                         IconButton(onClick = { 
                                 if (isPeerBlocked) {
                                     Toast.makeText(mContext, "Unblock contact to call", Toast.LENGTH_SHORT).show()
