@@ -39,6 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ScreenShare
 import androidx.compose.material.icons.automirrored.filled.StopScreenShare
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -613,7 +614,7 @@ fun AppCallScreen(callId: String, isIncoming: Boolean, autoAcceptState: State<Bo
         }
 
         if (showParticipants && room != null) {
-            ParticipantListDialog(
+            ZoomParticipantsBottomSheet(
                 room = room!!,
                 onDismiss = { showParticipants = false }
             )
@@ -791,12 +792,12 @@ fun VideoCallUI(
     val peerName = if (isIncoming) call.callerName else call.receiverName
     val mContext = LocalContext.current
     val isMeetingCall = call.isGroup || call.id.startsWith("MEETING_") || call.receiverUid == "MEETING_ROOM"
-    val meetingTitle = if (call.isGroup || call.id.startsWith("MEETING_")) "${FirebaseAuth.getInstance().currentUser?.displayName ?: "Shashi"}'s Z..." else peerName
+    val meetingTitle = if (call.isGroup || call.id.startsWith("MEETING_")) "${FirebaseAuth.getInstance().currentUser?.displayName ?: "Shashi"}'s Meeting" else peerName
 
     var showChatDialog by remember { mutableStateOf(false) }
     var showMoreDialog by remember { mutableStateOf(false) }
     var showSecurityDialog by remember { mutableStateOf(false) }
-    val chatMessages = remember { mutableStateListOf<Pair<String, String>>("Host" to "Welcome to Shyna Zoom Meeting!") }
+    val chatMessages = remember { mutableStateListOf<Pair<String, String>>("Host" to "Welcome to Shyna Meeting!") }
     var chatInput by remember { mutableStateOf("") }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
@@ -1002,50 +1003,14 @@ fun VideoCallUI(
             }
         }
 
-        // --- MEETINGS CHAT DIALOG ---
+        // --- ZOOM CHAT BOTTOM SHEET ---
         if (showChatDialog) {
-            AlertDialog(
-                onDismissRequest = { showChatDialog = false },
-                title = { Text("Meeting Chat", fontWeight = FontWeight.Bold, color = Color.White) },
-                text = {
-                    Column(modifier = Modifier.fillMaxWidth().height(250.dp)) {
-                        LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(chatMessages.size) { idx ->
-                                val msg = chatMessages[idx]
-                                Column {
-                                    Text(msg.first, color = ShynaDesign.colors.BrandGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                    Text(msg.second, color = Color.White, fontSize = 14.sp)
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedTextField(
-                                value = chatInput,
-                                onValueChange = { chatInput = it },
-                                placeholder = { Text("Send message to everyone", color = Color.Gray) },
-                                modifier = Modifier.weight(1f),
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = ShynaDesign.colors.BrandGreen, unfocusedBorderColor = Color.Gray, focusedTextColor = Color.White, unfocusedTextColor = Color.White)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Button(
-                                onClick = {
-                                    if (chatInput.isNotBlank()) {
-                                        chatMessages.add("You" to chatInput)
-                                        chatInput = ""
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = ShynaDesign.colors.BrandGreen)
-                            ) {
-                                Text("Send", color = Color.Black, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { showChatDialog = false }) { Text("Close", color = ShynaDesign.colors.BrandGreen) }
-                },
-                containerColor = Color(0xFF1F2C34)
+            ZoomChatBottomSheet(
+                chatMessages = chatMessages,
+                onDismiss = { showChatDialog = false },
+                onSendMessage = { msgText ->
+                    chatMessages.add("You" to msgText)
+                }
             )
         }
 
@@ -1196,65 +1161,282 @@ fun VideoGrid(tracks: List<VideoTrack>, room: Room, modifier: Modifier = Modifie
 }
 
 @Composable
-fun ParticipantListDialog(room: Room, onDismiss: () -> Unit) {
-    val participants = remember(room.remoteParticipants.size) {
-        listOf(room.localParticipant) + room.remoteParticipants.values.toList()
-    }
-    
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Participants (${participants.size})", fontWeight = FontWeight.Bold) },
-        text = {
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+fun ZoomChatBottomSheet(
+    chatMessages: List<Pair<String, String>>,
+    onDismiss: () -> Unit,
+    onSendMessage: (String) -> Unit
+) {
+    var textInput by remember { mutableStateOf("") }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(0.6f))
+            .clickable(onClick = onDismiss)
+            .zIndex(60f),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.7f)
+                .clickable(enabled = false) {},
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            color = Color(0xFF121B22)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp)
             ) {
-                items(participants.size) { index ->
-                    val p = participants[index]
-                    val isLocal = p is LocalParticipant
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(modifier = Modifier.size(40.dp), shape = CircleShape, color = Color.DarkGray) {
-                            Icon(Icons.Default.Person, null, modifier = Modifier.padding(8.dp), tint = Color.LightGray)
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            val displayName = p.name?.takeIf { it.isNotBlank() } ?: p.identity?.value ?: "Participant"
+                Box(
+                    modifier = Modifier
+                        .width(40.dp)
+                        .height(4.dp)
+                        .background(Color.Gray, CircleShape)
+                        .align(Alignment.CenterHorizontally)
+                )
+                Spacer(Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("In-Meeting Chat", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, null, tint = Color.White)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider(color = Color(0xFF2A3942))
+                Spacer(Modifier.height(12.dp))
+
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(chatMessages.size) { idx ->
+                        val msg = chatMessages[idx]
+                        val isMe = msg.first == "You"
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = if (isMe) Alignment.End else Alignment.Start
+                        ) {
                             Text(
-                                text = if (isLocal) "$displayName (You)" else displayName,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color.White
+                                text = msg.first,
+                                color = if (isMe) ShynaDesign.colors.BrandGreen else Color.LightGray,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
                             )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = if (p.isMicrophoneEnabled) Icons.Default.Mic else Icons.Default.MicOff,
-                                    contentDescription = null,
-                                    tint = if (p.isMicrophoneEnabled) ShynaDesign.colors.BrandGreen else Color.Gray,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Icon(
-                                    imageVector = if (p.isCameraEnabled) Icons.Default.Videocam else Icons.Default.VideocamOff,
-                                    contentDescription = null,
-                                    tint = if (p.isCameraEnabled) ShynaDesign.colors.BrandGreen else Color.Gray,
-                                    modifier = Modifier.size(14.dp)
+                            Spacer(Modifier.height(2.dp))
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = if (isMe) Color(0xFF005C4B) else Color(0xFF2A3942),
+                                modifier = Modifier.widthIn(max = 280.dp)
+                            ) {
+                                Text(
+                                    text = msg.second,
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
                                 )
                             }
                         }
-                        if (p == room.localParticipant) {
-                            Text("HOST", color = ShynaDesign.colors.BrandGreen, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = textInput,
+                        onValueChange = { textInput = it },
+                        placeholder = { Text("Send message to everyone", color = Color.Gray, fontSize = 13.sp) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = ShynaDesign.colors.BrandGreen,
+                            unfocusedBorderColor = Color(0xFF2A3942),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedContainerColor = Color(0xFF1F2C34),
+                            unfocusedContainerColor = Color(0xFF1F2C34)
+                        ),
+                        singleLine = true
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    IconButton(
+                        onClick = {
+                            if (textInput.isNotBlank()) {
+                                onSendMessage(textInput)
+                                textInput = ""
+                            }
+                        },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(ShynaDesign.colors.BrandGreen, CircleShape)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Send, null, tint = Color.Black, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ZoomParticipantsBottomSheet(
+    room: Room,
+    onDismiss: () -> Unit
+) {
+    val participants = remember(room.remoteParticipants.size) {
+        listOf(room.localParticipant) + room.remoteParticipants.values.toList()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(0.6f))
+            .clickable(onClick = onDismiss)
+            .zIndex(60f),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.65f)
+                .clickable(enabled = false) {},
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            color = Color(0xFF121B22)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(40.dp)
+                        .height(4.dp)
+                        .background(Color.Gray, CircleShape)
+                        .align(Alignment.CenterHorizontally)
+                )
+                Spacer(Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Participants (${participants.size})", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, null, tint = Color.White)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider(color = Color(0xFF2A3942))
+                Spacer(Modifier.height(12.dp))
+
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(participants.size) { index ->
+                        val p = participants[index]
+                        val isLocal = p is LocalParticipant
+                        val displayName = p.name?.takeIf { it.isNotBlank() } ?: p.identity?.value ?: "Participant"
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF1F2C34), RoundedCornerShape(14.dp))
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                modifier = Modifier.size(44.dp),
+                                shape = CircleShape,
+                                color = ShynaDesign.colors.BrandGreen.copy(0.2f)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = displayName.take(1).uppercase(),
+                                        color = ShynaDesign.colors.BrandGreen,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 18.sp
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = if (isLocal) "$displayName (You)" else displayName,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        fontSize = 15.sp
+                                    )
+                                    if (isLocal) {
+                                        Spacer(Modifier.width(8.dp))
+                                        Surface(
+                                            color = ShynaDesign.colors.BrandGreen,
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                "HOST",
+                                                color = Color.Black,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = if (p.isMicrophoneEnabled) Icons.Default.Mic else Icons.Default.MicOff,
+                                            contentDescription = null,
+                                            tint = if (p.isMicrophoneEnabled) ShynaDesign.colors.BrandGreen else Color.Red,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(
+                                            text = if (p.isMicrophoneEnabled) "Audio on" else "Muted",
+                                            color = Color.Gray,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = if (p.isCameraEnabled) Icons.Default.Videocam else Icons.Default.VideocamOff,
+                                            contentDescription = null,
+                                            tint = if (p.isCameraEnabled) ShynaDesign.colors.BrandGreen else Color.Red,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(
+                                            text = if (p.isCameraEnabled) "Video on" else "Camera off",
+                                            color = Color.Gray,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("CLOSE", color = ShynaDesign.colors.BrandGreen) }
-        },
-        containerColor = Color(0xFF1F2C34)
-    )
+        }
+    }
 }
 
 private fun formatDuration(seconds: Long): String {

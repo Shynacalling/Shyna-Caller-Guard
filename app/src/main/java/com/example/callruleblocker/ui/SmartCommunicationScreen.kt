@@ -6373,7 +6373,7 @@ private fun MeetingHomeContent(
             Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Shyna Secure Meetings", color = ShynaDesign.colors.TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
-                Text("Connect instantly with HD video, end-to-end encryption, and Zoom-like controls.", color = ShynaDesign.colors.TextSecondary, fontSize = 13.sp, textAlign = TextAlign.Center)
+                Text("Connect instantly with HD video, end-to-end encryption, and Shyna meeting controls.", color = ShynaDesign.colors.TextSecondary, fontSize = 13.sp, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(28.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     MeetingHubAction("New Meeting", Icons.Default.VideoCall, ShynaDesign.colors.BrandGreen, onNew)
@@ -7262,7 +7262,7 @@ private fun ShareScreenDialog(
 
             Spacer(Modifier.height(32.dp))
             
-            Text("Enter a sharing key or meeting ID to share to a Zoom Room", color = Color.Gray, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 16.dp))
+            Text("Enter a sharing key or meeting ID to share to a Shyna Meeting Room", color = Color.Gray, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 16.dp))
             
             Spacer(Modifier.height(16.dp))
 
