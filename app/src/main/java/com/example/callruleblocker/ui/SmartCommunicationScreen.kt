@@ -3563,19 +3563,23 @@ private fun SmartChatDetailScreen(
                                         if (canDeleteForEveryone) {
                                             Surface(
                                                 onClick = {
-                                                    selectedMsgs.forEach { id -> 
-                                                        val m = msgs.find { it.id == id }
-                                                        val updates = mutableMapOf<String, Any>(
-                                                            "isDeleted" to true, 
-                                                            "deleteForEveryone" to true, 
-                                                            "text" to "This message was deleted"
-                                                        )
-                                                        if (m?.messageType != MessageType.TEXT) {
-                                                            updates["metadata"] = com.google.firebase.firestore.FieldValue.delete()
-                                                            updates["fileName"] = com.google.firebase.firestore.FieldValue.delete()
-                                                            updates["thumbnailUrl"] = com.google.firebase.firestore.FieldValue.delete()
+                                                    runCatching {
+                                                        selectedMsgs.forEach { id -> 
+                                                            val m = msgs.find { it.id == id }
+                                                            val updates = mutableMapOf<String, Any>(
+                                                                "isDeleted" to true, 
+                                                                "deleteForEveryone" to true, 
+                                                                "text" to "This message was deleted"
+                                                            )
+                                                            if (m?.messageType != MessageType.TEXT) {
+                                                                updates["metadata"] = FieldValue.delete()
+                                                                updates["fileName"] = FieldValue.delete()
+                                                                updates["thumbnailUrl"] = FieldValue.delete()
+                                                            }
+                                                            db.collection("chats").document(chatId).collection("messages").document(id).update(updates)
                                                         }
-                                                        db.collection("chats").document(chatId).collection("messages").document(id).update(updates)
+                                                    }.onFailure { e ->
+                                                        Toast.makeText(mContext, "Delete failed: ${e.message}", Toast.LENGTH_SHORT).show()
                                                     }
                                                     selectedMsgs.clear()
                                                     showDeleteDialog = false
@@ -3588,9 +3592,13 @@ private fun SmartChatDetailScreen(
                                         }
                                         Surface(
                                             onClick = {
-                                                selectedMsgs.forEach { id -> 
-                                                    db.collection("chats").document(chatId).collection("messages").document(id)
-                                                        .update("deletedFor", com.google.firebase.firestore.FieldValue.arrayUnion(userId)) 
+                                                runCatching {
+                                                    selectedMsgs.forEach { id -> 
+                                                        db.collection("chats").document(chatId).collection("messages").document(id)
+                                                            .update("deletedFor", FieldValue.arrayUnion(userId))
+                                                    }
+                                                }.onFailure { e ->
+                                                    Toast.makeText(mContext, "Delete failed: ${e.message}", Toast.LENGTH_SHORT).show()
                                                 }
                                                 selectedMsgs.clear()
                                                 showDeleteDialog = false
