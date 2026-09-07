@@ -823,6 +823,39 @@ fun VideoCallUI(
         }
     }
 
+    val participantVideoItems = remember(room, remoteTracks, localTrack, isCameraOff) {
+        val list = mutableListOf<ParticipantVideoItem>()
+        if (room != null && localTrack != null && !isCameraOff) {
+            val localName = FirebaseAuth.getInstance().currentUser?.displayName ?: "Shashi"
+            list.add(ParticipantVideoItem(
+                participantId = room.localParticipant.identity?.value ?: "local",
+                displayName = "$localName (You)",
+                videoTrack = localTrack,
+                isLocal = true,
+                isMicEnabled = room.localParticipant.isMicrophoneEnabled,
+                isCameraEnabled = !isCameraOff
+            ))
+        }
+        room?.remoteParticipants?.values?.forEach { rp ->
+            rp.videoTrackPublications.forEach { (_, pub) ->
+                val vTrack = pub as? VideoTrack
+                if (vTrack != null) {
+                    val uid = rp.identity?.value ?: "remote"
+                    val name = rp.name?.takeIf { it.isNotBlank() && !it.startsWith("room_") } ?: "Participant"
+                    list.add(ParticipantVideoItem(
+                        participantId = uid,
+                        displayName = name,
+                        videoTrack = vTrack,
+                        isLocal = false,
+                        isMicEnabled = rp.isMicrophoneEnabled,
+                        isCameraEnabled = rp.isCameraEnabled
+                    ))
+                }
+            }
+        }
+        list
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         // Video View / Grid / Screen Share / 2-Participant Split Screen
         if (screenShareTracks.isNotEmpty() && room != null) {
@@ -852,38 +885,8 @@ fun VideoCallUI(
                     modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color.Black.copy(0.6f), RoundedCornerShape(4.dp)).padding(horizontal = 4.dp, vertical = 2.dp)
                 )
             }
-        } else if (room != null && remoteTracks.size == 1) {
-            // Exactly 2 participants: Half screen top for User 1 (Self), Half screen bottom for User 2 (Remote)
-            Column(modifier = Modifier.fillMaxSize()) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth().border(1.dp, Color.Black)) {
-                    if (localTrack != null && !isCameraOff) {
-                        VideoRenderer(localTrack, room, modifier = Modifier.fillMaxSize())
-                    } else {
-                        Box(Modifier.fillMaxSize().background(Color.DarkGray), contentAlignment = Alignment.Center) {
-                            Text(if (isCameraOff) "Your Camera is Off" else "Connecting Camera...", color = Color.White, fontSize = 14.sp)
-                        }
-                    }
-                    Text(
-                        text = "You (User 1)",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).background(Color.Black.copy(0.6f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-                Box(modifier = Modifier.weight(1f).fillMaxWidth().border(1.dp, Color.Black)) {
-                    VideoRenderer(remoteTracks.first(), room, modifier = Modifier.fillMaxSize())
-                    Text(
-                        text = call.receiverName.takeIf { it.isNotBlank() } ?: "User 2",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).background(Color.Black.copy(0.6f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-            }
-        } else if (room != null && remoteTracks.isNotEmpty()) {
-            VideoGrid(remoteTracks, room, modifier = Modifier.fillMaxSize())
+        } else if (participantVideoItems.isNotEmpty() && room != null) {
+            AdvancedVideoGrid(participantVideoItems, room, modifier = Modifier.fillMaxSize())
         } else if (isMeetingCall && room?.state == Room.State.CONNECTED && localTrack != null && !isCameraOff) {
             Box(Modifier.fillMaxSize()) {
                 VideoRenderer(localTrack, room, modifier = Modifier.fillMaxSize())
@@ -1882,5 +1885,81 @@ fun SecurityCheckboxRow(label: String, checked: Boolean, onCheckedChange: (Boole
         )
         Spacer(Modifier.width(12.dp))
         Text(label, color = Color.White, fontSize = 14.sp)
+    }
+}
+
+data class ParticipantVideoItem(
+    val participantId: String,
+    val displayName: String,
+    val videoTrack: VideoTrack,
+    val isLocal: Boolean,
+    val isMicEnabled: Boolean,
+    val isCameraEnabled: Boolean
+)
+
+@Composable
+fun AdvancedVideoGrid(items: List<ParticipantVideoItem>, room: Room, modifier: Modifier = Modifier) {
+    if (items.isEmpty()) {
+        Box(modifier, contentAlignment = Alignment.Center) {
+            Text("Waiting for video...", color = Color.White)
+        }
+        return
+    }
+
+    if (items.size == 1) {
+        Box(modifier) {
+            VideoRenderer(items[0].videoTrack, room, modifier = Modifier.fillMaxSize())
+            ParticipantNameBadge(items[0].displayName, items[0].isMicEnabled, modifier = Modifier.align(Alignment.BottomStart))
+        }
+    } else {
+        val columns = if (items.size <= 4) 2 else 3
+        val rows = (items.size + columns - 1) / columns
+        
+        Column(modifier) {
+            for (r in 0 until rows) {
+                Row(Modifier.weight(1f)) {
+                    for (c in 0 until columns) {
+                        val index = r * columns + c
+                        if (index < items.size) {
+                            val item = items[index]
+                            Box(Modifier.weight(1f).fillMaxHeight().border(1.dp, Color.Black)) {
+                                VideoRenderer(item.videoTrack, room, modifier = Modifier.fillMaxSize())
+                                ParticipantNameBadge(item.displayName, item.isMicEnabled, modifier = Modifier.align(Alignment.BottomStart))
+                            }
+                        } else {
+                            Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ParticipantNameBadge(name: String, isMicEnabled: Boolean, modifier: Modifier = Modifier) {
+    Surface(
+        color = Color.Black.copy(0.6f),
+        shape = RoundedCornerShape(6.dp),
+        modifier = modifier.padding(8.dp).zIndex(2f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                imageVector = if (isMicEnabled) Icons.Default.Mic else Icons.Default.MicOff,
+                contentDescription = null,
+                tint = if (isMicEnabled) ShynaDesign.colors.BrandGreen else Color.Red,
+                modifier = Modifier.size(12.dp)
+            )
+            Text(
+                text = name,
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
     }
 }
