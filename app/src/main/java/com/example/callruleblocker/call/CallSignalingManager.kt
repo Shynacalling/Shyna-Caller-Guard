@@ -210,23 +210,18 @@ object CallSignalingManager {
             isGroup = true
         )
 
-        if (!meetingStartsInFlight.add(callId)) {
-            onError(IllegalStateException("Meeting is already starting"))
-            return
-        }
+        // INSTANT START: Trigger callback immediately without waiting for network roundtrip
+        onCreated(call)
 
-        db.collection("app_calls").document(callId)
-            .set(call)
-            .addOnSuccessListener {
-                meetingStartsInFlight.remove(callId)
-                Log.d(TAG, "MEETING_ROOM_READY: $callId room=$roomName")
-                onCreated(call)
+        // Background asynchronous sync to Firestore
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching {
+                db.collection("app_calls").document(callId).set(call, SetOptions.merge()).await()
+                Log.d(TAG, "MEETING_ROOM_SYNCED: $callId")
+            }.onFailure { e ->
+                Log.w(TAG, "MEETING_ROOM_SYNC_BACKGROUND_FAILED: ${e.message}")
             }
-            .addOnFailureListener { e ->
-                meetingStartsInFlight.remove(callId)
-                Log.e(TAG, "MEETING_ROOM_FAILED: ${e.message}", e)
-                onError(e)
-            }
+        }
     }
 
     /** Adds the current user to an already-created meeting room and returns its AppCall. */
