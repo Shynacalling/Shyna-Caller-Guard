@@ -58,6 +58,16 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         Log.d("ShynaCall", "MainActivity onCreate started")
 
+        val activeSession = CallStateController.activeSession.value
+        if (activeSession != null && (activeSession.state == GlobalCallState.ACTIVE || activeSession.state == GlobalCallState.CONNECTING) && !activeSession.callId.isBlank()) {
+            val intent = Intent(this, AppCallActivity::class.java).apply {
+                putExtra("callId", activeSession.callId)
+                putExtra("isIncoming", false)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+            startActivity(intent)
+        }
+
         setContent {
             val auth = remember { 
                 try { 
