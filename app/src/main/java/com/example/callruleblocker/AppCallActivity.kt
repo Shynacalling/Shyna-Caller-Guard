@@ -68,11 +68,14 @@ import com.example.callruleblocker.ui.ShynaTheme
 import com.example.callruleblocker.ui.ThemeMode
 import com.example.callruleblocker.ui.VideoRenderer
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.tasks.await
 import io.livekit.android.events.RoomEvent
 import io.livekit.android.events.collect
 import io.livekit.android.room.Room
 import io.livekit.android.room.participant.LocalParticipant
 import io.livekit.android.room.participant.Participant
+import io.livekit.android.room.track.AudioTrack
 import io.livekit.android.room.track.VideoTrack
 import io.livekit.android.room.track.screencapture.ScreenCaptureParams
 import kotlinx.coroutines.CoroutineScope
@@ -1308,6 +1311,29 @@ fun ZoomParticipantsBottomSheet(
     val participants = remember(room.remoteParticipants.size) {
         listOf(room.localParticipant) + room.remoteParticipants.values.toList()
     }
+    val context = LocalContext.current
+    val db = FirebaseFirestore.getInstance()
+    val nameCache = remember { mutableStateMapOf<String, String>() }
+    val currentAuthUser = FirebaseAuth.getInstance().currentUser
+
+    LaunchedEffect(participants) {
+        participants.forEach { p ->
+            val uid = p.identity?.value ?: return@forEach
+            if (!nameCache.containsKey(uid)) {
+                if (uid == currentAuthUser?.uid) {
+                    nameCache[uid] = currentAuthUser.displayName ?: "Shashi"
+                } else {
+                    runCatching {
+                        val doc = db.collection("users").document(uid).get().await()
+                        val name = doc.getString("name") ?: doc.getString("displayName")
+                        if (!name.isNullOrBlank()) {
+                            nameCache[uid] = name
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -1320,7 +1346,7 @@ fun ZoomParticipantsBottomSheet(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.65f)
+                .fillMaxHeight(0.7f)
                 .clickable(enabled = false) {},
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
             color = Color(0xFF121B22)
@@ -1345,8 +1371,25 @@ fun ZoomParticipantsBottomSheet(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("Participants (${participants.size})", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, null, tint = Color.White)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                room.remoteParticipants.values.forEach { remoteP ->
+                                    remoteP.audioTrackPublications.forEach { (it.second as? AudioTrack)?.enabled = false }
+                                }
+                                Toast.makeText(context, "Muted all participants", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2A3942)),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.MicOff, null, tint = Color.Red, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Mute All", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, null, tint = Color.White)
+                        }
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -1362,7 +1405,8 @@ fun ZoomParticipantsBottomSheet(
                     items(participants.size) { index ->
                         val p = participants[index]
                         val isLocal = p is LocalParticipant
-                        val displayName = p.name?.takeIf { it.isNotBlank() } ?: p.identity?.value ?: "Participant"
+                        val uid = p.identity?.value ?: ""
+                        val resolvedName = nameCache[uid] ?: p.name?.takeIf { it.isNotBlank() && !it.startsWith("room_") && !it.startsWith("call_") } ?: if (isLocal) (currentAuthUser?.displayName ?: "Shashi") else "Shyna Member"
 
                         Row(
                             modifier = Modifier
@@ -1378,7 +1422,7 @@ fun ZoomParticipantsBottomSheet(
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Text(
-                                        text = displayName.take(1).uppercase(),
+                                        text = resolvedName.take(1).uppercase(),
                                         color = ShynaDesign.colors.BrandGreen,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 18.sp
@@ -1389,7 +1433,7 @@ fun ZoomParticipantsBottomSheet(
                             Column(Modifier.weight(1f)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        text = if (isLocal) "$displayName (You)" else displayName,
+                                        text = if (isLocal) "$resolvedName (You)" else resolvedName,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White,
                                         fontSize = 15.sp
