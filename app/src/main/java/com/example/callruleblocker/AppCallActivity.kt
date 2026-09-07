@@ -824,7 +824,7 @@ fun VideoCallUI(
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        // Video View / Grid / Screen Share
+        // Video View / Grid / Screen Share / 2-Participant Split Screen
         if (screenShareTracks.isNotEmpty() && room != null) {
             VideoRenderer(screenShareTracks.first(), room, modifier = Modifier.fillMaxSize())
             
@@ -840,15 +840,54 @@ fun VideoCallUI(
                     .zIndex(20f)
             ) {
                 localTrack?.let { VideoRenderer(it, room, modifier = Modifier.fillMaxSize()) }
+                if (isCameraOff) {
+                    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.VideocamOff, null, tint = Color.White)
+                    }
+                }
                 Text(
-                    text = "Speaker",
+                    text = "You",
                     color = Color.White,
                     fontSize = 11.sp,
                     modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color.Black.copy(0.6f), RoundedCornerShape(4.dp)).padding(horizontal = 4.dp, vertical = 2.dp)
                 )
             }
+        } else if (room != null && remoteTracks.size == 1) {
+            // Exactly 2 participants: Half screen top for User 1 (Self), Half screen bottom for User 2 (Remote)
+            Column(modifier = Modifier.fillMaxSize()) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth().border(1.dp, Color.Black)) {
+                    if (localTrack != null && !isCameraOff) {
+                        VideoRenderer(localTrack, room, modifier = Modifier.fillMaxSize())
+                    } else {
+                        Box(Modifier.fillMaxSize().background(Color.DarkGray), contentAlignment = Alignment.Center) {
+                            Text(if (isCameraOff) "Your Camera is Off" else "Connecting Camera...", color = Color.White, fontSize = 14.sp)
+                        }
+                    }
+                    Text(
+                        text = "You (User 1)",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).background(Color.Black.copy(0.6f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+                Box(modifier = Modifier.weight(1f).fillMaxWidth().border(1.dp, Color.Black)) {
+                    VideoRenderer(remoteTracks.first(), room, modifier = Modifier.fillMaxSize())
+                    Text(
+                        text = call.receiverName.takeIf { it.isNotBlank() } ?: "User 2",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).background(Color.Black.copy(0.6f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
         } else if (room != null && remoteTracks.isNotEmpty()) {
             VideoGrid(remoteTracks, room, modifier = Modifier.fillMaxSize())
+        } else if (isMeetingCall && room?.state == Room.State.CONNECTED && localTrack != null && !isCameraOff) {
+            Box(Modifier.fillMaxSize()) {
+                VideoRenderer(localTrack, room, modifier = Modifier.fillMaxSize())
+            }
         } else if (isMeetingCall && room?.state == Room.State.CONNECTED) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
