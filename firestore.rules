@@ -88,6 +88,10 @@ service cloud.firestore {
         allow read: if signedIn();
         allow create, update, delete: if signedIn() && request.auth.uid == participantUid;
       }
+
+      match /whiteboard_strokes/{strokeId} {
+        allow read, write: if signedIn();
+      }
     }
 
     // Scheduled Calls
