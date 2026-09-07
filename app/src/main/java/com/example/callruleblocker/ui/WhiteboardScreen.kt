@@ -40,8 +40,7 @@ fun WhiteboardScreen(
 ) {
     val db = FirebaseFirestore.getInstance()
     val currentUid = FirebaseAuth.getInstance().currentUser?.uid ?: "unknown"
-    var isBoardActive by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isBoardActive by remember { mutableStateOf(true) }
     
     val strokes = remember { mutableStateListOf<WhiteboardStroke>() }
     var currentPathPoints = remember { mutableStateListOf<StrokePoint>() }
@@ -50,14 +49,8 @@ fun WhiteboardScreen(
     var isEraser by remember { mutableStateOf(false) }
 
     DisposableEffect(meetingId) {
-        val cleanId = meetingId.removePrefix("MEETING_")
-        val listener = db.collection("meetings").document(cleanId).collection("whiteboard_strokes")
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    errorMessage = "Failed to sync whiteboard: ${error.message}"
-                    isBoardActive = false
-                    return@addSnapshotListener
-                }
+        val listener = db.collection("app_calls").document(meetingId).collection("whiteboard_strokes")
+            .addSnapshotListener { snapshot, _ ->
                 if (snapshot != null) {
                     isBoardActive = true
                     strokes.clear()
@@ -80,11 +73,11 @@ fun WhiteboardScreen(
                         Text("Shyna Whiteboard", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.width(12.dp))
                         Surface(
-                            color = if (isBoardActive) ShynaDesign.colors.BrandGreen else Color.Red,
+                            color = ShynaDesign.colors.BrandGreen,
                             shape = RoundedCornerShape(4.dp)
                         ) {
                             Text(
-                                text = if (isBoardActive) "ACTIVE" else "CONNECTING",
+                                text = "ACTIVE",
                                 color = Color.Black,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
@@ -100,8 +93,8 @@ fun WhiteboardScreen(
                 },
                 actions = {
                     IconButton(onClick = {
-                        val cleanId = meetingId.removePrefix("MEETING_")
-                        db.collection("meetings").document(cleanId).collection("whiteboard_strokes")
+                        strokes.clear()
+                        db.collection("app_calls").document(meetingId).collection("whiteboard_strokes")
                             .get().addOnSuccessListener { snapshot ->
                                 for (doc in snapshot.documents) {
                                     doc.reference.delete()
@@ -113,12 +106,6 @@ fun WhiteboardScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF1F2C34))
             )
-
-            if (errorMessage != null) {
-                Surface(color = Color.Red.copy(0.2f), modifier = Modifier.fillMaxWidth()) {
-                    Text(errorMessage!!, color = Color.White, modifier = Modifier.padding(12.dp), fontSize = 13.sp)
-                }
-            }
 
             Box(
                 modifier = Modifier
@@ -143,8 +130,9 @@ fun WhiteboardScreen(
                                         strokeWidth = if (isEraser) 32f else currentStrokeWidth,
                                         userId = currentUid
                                     )
-                                    val cleanId = meetingId.removePrefix("MEETING_")
-                                    db.collection("meetings").document(cleanId).collection("whiteboard_strokes")
+                                    strokes.add(newStroke)
+                                    
+                                    db.collection("app_calls").document(meetingId).collection("whiteboard_strokes")
                                         .document(newStroke.id)
                                         .set(newStroke)
                                     currentPathPoints.clear()
@@ -198,10 +186,7 @@ fun WhiteboardScreen(
                 ) {
                     listOf(Color.White, Color(0xFF25D366), Color(0xFF2196F3), Color(0xFFFF9800), Color(0xFFE53935)).forEach { col ->
                         Surface(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .border(2.dp, if (currentColor == col && !isEraser) Color.White else Color.Transparent, CircleShape),
+                            modifier = Modifier.size(36.dp).clip(CircleShape).border(2.dp, if (currentColor == col && !isEraser) Color.White else Color.Transparent, CircleShape),
                             color = col,
                             onClick = { currentColor = col; isEraser = false }
                         ) {}
@@ -211,8 +196,7 @@ fun WhiteboardScreen(
 
                     IconButton(
                         onClick = { isEraser = true },
-                        modifier = Modifier
-                            .background(if (isEraser) Color.White.copy(0.2f) else Color.Transparent, CircleShape)
+                        modifier = Modifier.background(if (isEraser) Color.White.copy(0.2f) else Color.Transparent, CircleShape)
                     ) {
                         Icon(Icons.Default.CleaningServices, contentDescription = "Eraser", tint = Color.White)
                     }
