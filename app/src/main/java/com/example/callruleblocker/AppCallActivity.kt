@@ -77,6 +77,8 @@ import io.livekit.android.room.Room
 import io.livekit.android.room.participant.LocalParticipant
 import io.livekit.android.room.participant.Participant
 import io.livekit.android.room.track.AudioTrack
+import io.livekit.android.room.track.RemoteVideoTrack
+import io.livekit.android.room.track.Track
 import io.livekit.android.room.track.VideoTrack
 import io.livekit.android.room.track.screencapture.ScreenCaptureParams
 import kotlinx.coroutines.CoroutineScope
@@ -815,14 +817,38 @@ fun VideoCallUI(
     val chatMessages = remember { mutableStateListOf<Pair<String, String>>("Host" to "Welcome to Shyna Meeting!") }
     var chatInput by remember { mutableStateOf("") }
 
+    val screenShareTracks = remember(remoteTracks) {
+        remoteTracks.filter { 
+            it.name.contains("screen", true) || it.name.contains("share", true)
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        // Video View / Grid
-        if (room != null && remoteTracks.isNotEmpty()) {
-            VideoGrid(remoteTracks, room, modifier = Modifier.fillMaxSize())
-        } else if (isMeetingCall && room?.state == Room.State.CONNECTED && localTrack != null && !isCameraOff) {
-            Box(Modifier.fillMaxSize()) {
-                VideoRenderer(localTrack, room, modifier = Modifier.fillMaxSize())
+        // Video View / Grid / Screen Share
+        if (screenShareTracks.isNotEmpty() && room != null) {
+            VideoRenderer(screenShareTracks.first(), room, modifier = Modifier.fillMaxSize())
+            
+            // Top floating camera window during screen share (Zoom style)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 90.dp, end = 16.dp)
+                    .size(120.dp, 170.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.DarkGray)
+                    .border(2.dp, Color.White.copy(0.4f), RoundedCornerShape(12.dp))
+                    .zIndex(20f)
+            ) {
+                localTrack?.let { VideoRenderer(it, room, modifier = Modifier.fillMaxSize()) }
+                Text(
+                    text = "Speaker",
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color.Black.copy(0.6f), RoundedCornerShape(4.dp)).padding(horizontal = 4.dp, vertical = 2.dp)
+                )
             }
+        } else if (room != null && remoteTracks.isNotEmpty()) {
+            VideoGrid(remoteTracks, room, modifier = Modifier.fillMaxSize())
         } else if (isMeetingCall && room?.state == Room.State.CONNECTED) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
