@@ -55,6 +55,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -1050,22 +1051,12 @@ fun VideoCallUI(
             )
         }
 
-        // --- SECURITY DIALOG ---
+        // --- SECURITY BOTTOM SHEET ---
         if (showSecurityDialog) {
-            AlertDialog(
-                onDismissRequest = { showSecurityDialog = false },
-                title = { Text("Meeting Security", fontWeight = FontWeight.Bold, color = Color.White) },
-                text = {
-                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Meeting ID: ${call.id.removePrefix("MEETING_")}", color = Color.LightGray, fontSize = 14.sp)
-                        Text("Host: Shashi (You)", color = Color.LightGray, fontSize = 14.sp)
-                        Text("End-to-End Encrypted via LiveKit", color = ShynaDesign.colors.BrandGreen, fontSize = 14.sp)
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { showSecurityDialog = false }) { Text("OK", color = ShynaDesign.colors.BrandGreen) }
-                },
-                containerColor = Color(0xFF1F2C34)
+            ZoomSecurityBottomSheet(
+                callId = call.id,
+                isHost = true,
+                onDismiss = { showSecurityDialog = false }
             )
         }
     }
@@ -1632,5 +1623,199 @@ fun MoreActionItem(icon: ImageVector, label: String, onClick: () -> Unit) {
             fontWeight = FontWeight.Medium,
             maxLines = 1
         )
+    }
+}
+
+@Composable
+fun ZoomSecurityBottomSheet(
+    callId: String,
+    isHost: Boolean,
+    onDismiss: () -> Unit
+) {
+    val db = FirebaseFirestore.getInstance()
+    val context = LocalContext.current
+
+    var lockMeeting by remember { mutableStateOf(false) }
+    var waitingRoom by remember { mutableStateOf(false) }
+    var hideProfiles by remember { mutableStateOf(false) }
+    var allowShareScreen by remember { mutableStateOf(true) }
+    var allowChat by remember { mutableStateOf(true) }
+    var allowRename by remember { mutableStateOf(true) }
+    var allowUnmute by remember { mutableStateOf(true) }
+    var allowStartVideo by remember { mutableStateOf(true) }
+    var allowWhiteboards by remember { mutableStateOf(true) }
+    var allowNotes by remember { mutableStateOf(true) }
+    var allowTimers by remember { mutableStateOf(true) }
+    var allowRecordingRequest by remember { mutableStateOf(true) }
+
+    LaunchedEffect(callId) {
+        runCatching {
+            val doc = db.collection("app_calls").document(callId).get().await()
+            lockMeeting = doc.getBoolean("locked") ?: false
+            waitingRoom = doc.getBoolean("waitingRoomEnabled") ?: false
+            hideProfiles = doc.getBoolean("hideProfilePictures") ?: false
+            allowShareScreen = doc.getBoolean("allowShareScreen") ?: true
+            allowChat = doc.getBoolean("allowChat") ?: true
+            allowRename = doc.getBoolean("allowRename") ?: true
+            allowUnmute = doc.getBoolean("allowUnmute") ?: true
+            allowStartVideo = doc.getBoolean("allowStartVideo") ?: true
+            allowWhiteboards = doc.getBoolean("allowWhiteboards") ?: true
+            allowNotes = doc.getBoolean("allowNotes") ?: true
+            allowTimers = doc.getBoolean("allowTimers") ?: true
+            allowRecordingRequest = doc.getBoolean("allowRecordingRequest") ?: true
+        }
+    }
+
+    val updateSetting: (String, Boolean) -> Unit = { key, value ->
+        db.collection("app_calls").document(callId).update(key, value)
+            .addOnSuccessListener { Toast.makeText(context, "Security updated", Toast.LENGTH_SHORT).show() }
+            .addOnFailureListener { Toast.makeText(context, "Failed to update security", Toast.LENGTH_SHORT).show() }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(0.6f))
+            .clickable(onClick = onDismiss)
+            .zIndex(70f),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.8f)
+                .clickable(enabled = false) {},
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            color = Color(0xFF121B22)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(40.dp)
+                        .height(4.dp)
+                        .background(Color.Gray, CircleShape)
+                        .align(Alignment.CenterHorizontally)
+                )
+                Spacer(Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Security Controls", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, null, tint = Color.White)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider(color = Color(0xFF2A3942))
+                Spacer(Modifier.height(12.dp))
+
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    item {
+                        SecurityToggleRow("Lock Meeting", lockMeeting) {
+                            lockMeeting = it
+                            updateSetting("locked", it)
+                        }
+                    }
+                    item {
+                        SecurityToggleRow("Enable Waiting Room", waitingRoom) {
+                            waitingRoom = it
+                            updateSetting("waitingRoomEnabled", it)
+                        }
+                    }
+                    item {
+                        SecurityToggleRow("Hide Profile Pictures", hideProfiles) {
+                            hideProfiles = it
+                            updateSetting("hideProfilePictures", it)
+                        }
+                    }
+
+                    item {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Allow All Participants to:", color = ShynaDesign.colors.BrandGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                    }
+
+                    item { SecurityCheckboxRow("Share Screen", allowShareScreen) { allowShareScreen = it; updateSetting("allowShareScreen", it) } }
+                    item { SecurityCheckboxRow("Chat", allowChat) { allowChat = it; updateSetting("allowChat", it) } }
+                    item { SecurityCheckboxRow("Rename Themselves", allowRename) { allowRename = it; updateSetting("allowRename", it) } }
+                    item { SecurityCheckboxRow("Unmute Themselves", allowUnmute) { allowUnmute = it; updateSetting("allowUnmute", it) } }
+                    item { SecurityCheckboxRow("Start Video", allowStartVideo) { allowStartVideo = it; updateSetting("allowStartVideo", it) } }
+                    item { SecurityCheckboxRow("Share Whiteboards", allowWhiteboards) { allowWhiteboards = it; updateSetting("allowWhiteboards", it) } }
+                    item { SecurityCheckboxRow("Share Notes", allowNotes) { allowNotes = it; updateSetting("allowNotes", it) } }
+                    item { SecurityCheckboxRow("Set Meeting Timers", allowTimers) { allowTimers = it; updateSetting("allowTimers", it) } }
+                    item { SecurityCheckboxRow("Request Host to Start Cloud Recording", allowRecordingRequest) { allowRecordingRequest = it; updateSetting("allowRecordingRequest", it) } }
+
+                    item {
+                        Spacer(Modifier.height(8.dp))
+                        Surface(
+                            onClick = {
+                                lockMeeting = true
+                                updateSetting("locked", true)
+                                Toast.makeText(context, "Participant activities suspended", Toast.LENGTH_LONG).show()
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFFE53935).copy(0.2f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Suspend Participant Activities",
+                                color = Color(0xFFE53935),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SecurityToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = ShynaDesign.colors.BrandGreen)
+        )
+    }
+}
+
+@Composable
+fun SecurityCheckboxRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Checkbox(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = CheckboxDefaults.colors(checkedColor = ShynaDesign.colors.BrandGreen, uncheckedColor = Color.Gray)
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(label, color = Color.White, fontSize = 14.sp)
     }
 }
