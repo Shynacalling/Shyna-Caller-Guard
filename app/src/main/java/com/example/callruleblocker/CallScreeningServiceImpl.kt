@@ -6,6 +6,7 @@ import android.os.Build
 import android.util.Log
 import android.content.Context
 import com.example.callruleblocker.data.BlockedCallStore
+import com.example.callruleblocker.data.Rule
 import com.example.callruleblocker.data.RuleRepository
 import com.example.callruleblocker.sim.SimSlotResolver
 import kotlinx.coroutines.CoroutineScope
@@ -68,9 +69,33 @@ class CallScreeningServiceImpl : CallScreeningService() {
                 }
             }.getOrNull() ?: "ALLOW"
 
+            val simplifiedNumber = number.filter { it.isDigit() }.takeLast(10)
+            val unknownPrefs = applicationContext.getSharedPreferences("sim_unknown_block_prefs",
+                MODE_PRIVATE
+            )
+            val unknownBlockActive = unknownPrefs.getBoolean("unknown_block_active", false)
+
+            var finalDecision = decision
+            if (finalDecision == "ALLOW" && unknownBlockActive) {
+                val specificBlocked = ruleRepository.blockedSpecificNumbers()
+                if (!specificBlocked.contains(simplifiedNumber)) {
+                    val countsPrefs = applicationContext.getSharedPreferences("unknown_call_counts",
+                        MODE_PRIVATE
+                    )
+                    val count = countsPrefs.getInt(simplifiedNumber, 0) + 1
+                    countsPrefs.edit().putInt(simplifiedNumber, count).apply()
+
+                    if (count >= 2) {
+                        ruleRepository.addRule(Rule(simSlotIndex = -1, matchType = "SPECIFIC_NUMBER", matchValue = simplifiedNumber, action = "BLOCK"))
+                        finalDecision = "BLOCK"
+                        Log.d("ShynaCall", "[AUTO-BLOCK] Unknown number $number permanently blocked after 2 calls and hidden from logs")
+                    }
+                }
+            }
+
             val responseBuilder = CallResponse.Builder()
-            if (decision == "BLOCK") {
-                Log.d("ShynaCall", "[SCREENING] BLOCKING: $number")
+            if (finalDecision == "BLOCK") {
+                Log.d("ShynaCall", "[SCREENING] BLOCKING & SKIPPING LOG: $number")
                 
                 @Suppress("MissingPermission")
                 val simSlot = SimSlotResolver.resolveSlot(applicationContext, callDetails.accountHandle)
@@ -80,7 +105,7 @@ class CallScreeningServiceImpl : CallScreeningService() {
                 responseBuilder.setRejectCall(true)
                 responseBuilder.setSkipCallLog(true)
                 responseBuilder.setSkipNotification(true)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && noRingCutEnabled) {
                     responseBuilder.setSilenceCall(true)
                 }
             } else {
