@@ -35,6 +35,13 @@ class RuleRepository(private val context: Context) {
     suspend fun deleteRule(rule: Rule) {
         trashStore.add(rule)
         dao.delete(rule)
+        val num = rule.matchValue.filter(Char::isDigit).takeLast(10)
+        if (num.isNotBlank()) {
+            listOf(0, 1).forEach { slot ->
+                val prefs = context.getSharedPreferences("unknown_call_counts_sim_$slot", Context.MODE_PRIVATE)
+                prefs.edit().remove(num).apply()
+            }
+        }
     }
 
     fun trashedRules(): List<TrashedRule> = trashStore.list()

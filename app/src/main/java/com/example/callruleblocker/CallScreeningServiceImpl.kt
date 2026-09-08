@@ -1,10 +1,14 @@
 package com.example.callruleblocker
 
+import android.Manifest
 import android.telecom.Call
 import android.telecom.CallScreeningService
 import android.os.Build
 import android.util.Log
 import android.content.Context
+import android.content.pm.PackageManager
+import android.provider.ContactsContract
+import androidx.core.content.ContextCompat
 import com.example.callruleblocker.data.BlockedCallStore
 import com.example.callruleblocker.data.Rule
 import com.example.callruleblocker.data.RuleRepository
@@ -28,6 +32,11 @@ class CallScreeningServiceImpl : CallScreeningService() {
         val number = callDetails.handle?.schemeSpecificPart
         if (number == null) {
             respondToCall(callDetails, CallScreeningService.CallResponse.Builder().build())
+            return
+        }
+
+        if (findContactId(number, applicationContext) != null) {
+            respondToCall(callDetails, CallResponse.Builder().build())
             return
         }
 
@@ -116,4 +125,17 @@ class CallScreeningServiceImpl : CallScreeningService() {
             respondToCall(callDetails, responseBuilder.build())
         }
     }
+
+    private fun findContactId(number: String, context: Context): Long? = runCatching {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return null
+        val uri = ContactsContract.PhoneLookup.CONTENT_FILTER_URI
+            .buildUpon().appendPath(number).build()
+        context.contentResolver.query(
+            uri,
+            arrayOf(ContactsContract.PhoneLookup.CONTACT_ID),
+            null,
+            null,
+            null
+        )?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else null }
+    }.getOrNull()
 }
