@@ -5705,13 +5705,19 @@ private fun CallsListContent(userId: String, allUsers: List<RealUser>, searchQue
     val blockedStore = remember { BlockedCallStore(mContext) }
     var blockedEntries by remember { mutableStateOf(blockedStore.getAll()) }
     
+    val hiddenPrefs = remember { mContext.getSharedPreferences("hidden_recent_calls_v1", Context.MODE_PRIVATE) }
+    var hiddenIds by remember { mutableStateOf(hiddenPrefs.getStringSet("hidden_ids", emptySet()) ?: emptySet()) }
+    
     LaunchedEffect(Unit) {
         blockedEntries = blockedStore.getAll()
     }
 
-    val filteredHistory = remember(history, searchQuery, blockedEntries) {
+    val filteredHistory = remember(history, searchQuery, blockedEntries, hiddenIds) {
         val blockedNums = blockedEntries.map { it.number }.toSet()
         history.filter { item ->
+            val id = item["id"]?.toString() ?: ""
+            if (hiddenIds.contains(id)) return@filter false
+
             val num = (item["receiverName"] as? String ?: item["callerName"] as? String ?: "").filter(Char::isDigit).takeLast(10)
             val isBlocked = num.isNotBlank() && blockedNums.contains(num)
             !isBlocked
@@ -5952,22 +5958,17 @@ private fun CallsListContent(userId: String, allUsers: List<RealUser>, searchQue
                             Icon(Icons.Default.SelectAll, null, tint = ShynaDesign.colors.TextPrimary)
                         }
                         IconButton(onClick = {
-                            if (userId.isNotBlank() && selectedIds.isNotEmpty()) {
+                            if (selectedIds.isNotEmpty()) {
                                 val idsToDelete = selectedIds.toSet()
-                                // Optimistic local UI removal for instant response
+                                val newHidden = hiddenIds + idsToDelete
+                                hiddenPrefs.edit().putStringSet("hidden_ids", newHidden).apply()
+                                hiddenIds = newHidden
+
+                                // Optimistic local UI removal
                                 history = history.filter { !idsToDelete.contains(it["id"]?.toString()) }
                                 selectedIds = emptySet()
 
-                                runCatching {
-                                    idsToDelete.forEach { id ->
-                                        if (id.isNotBlank()) {
-                                            db.collection("users").document(userId).collection("call_history").document(id).delete()
-                                        }
-                                    }
-                                }.onFailure { e ->
-                                    Log.e("ShynaCall", "Delete history error: ${e.message}")
-                                }
-                                Toast.makeText(mContext, "Call history deleted", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(mContext, "Removed from recent calls", Toast.LENGTH_SHORT).show()
                             }
                         }) {
                             Icon(Icons.Default.Delete, null, tint = Color.Red)
