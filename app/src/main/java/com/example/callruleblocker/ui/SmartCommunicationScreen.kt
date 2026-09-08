@@ -130,6 +130,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.example.callruleblocker.data.BlockedCallStore
 import com.example.callruleblocker.data.LocationService
 import com.example.callruleblocker.data.StatusLocalStore
 import com.google.firebase.firestore.DocumentSnapshot
@@ -5701,11 +5702,25 @@ private fun CallsListContent(userId: String, allUsers: List<RealUser>, searchQue
     var favorites by remember { mutableStateOf<List<RealUser>>(emptyList()) }
     val mContext = LocalContext.current
     
-    val filteredHistory = remember(history, searchQuery) {
-        if (searchQuery.isEmpty()) history
-        else history.filter { 
-            val name = (it["receiverName"] as? String ?: it["callerName"] as? String ?: "").lowercase()
-            name.contains(searchQuery.lowercase())
+    val blockedStore = remember { BlockedCallStore(mContext) }
+    var blockedEntries by remember { mutableStateOf(blockedStore.getAll()) }
+    
+    LaunchedEffect(Unit) {
+        blockedEntries = blockedStore.getAll()
+    }
+
+    val filteredHistory = remember(history, searchQuery, blockedEntries) {
+        val blockedNums = blockedEntries.map { it.number }.toSet()
+        history.filter { item ->
+            val num = (item["receiverName"] as? String ?: item["callerName"] as? String ?: "").filter(Char::isDigit).takeLast(10)
+            val isBlocked = num.isNotBlank() && blockedNums.contains(num)
+            !isBlocked
+        }.let { list ->
+            if (searchQuery.isEmpty()) list
+            else list.filter { 
+                val name = (it["receiverName"] as? String ?: it["callerName"] as? String ?: "").lowercase()
+                name.contains(searchQuery.lowercase())
+            }
         }
     }
 
@@ -5846,7 +5861,8 @@ private fun CallsListContent(userId: String, allUsers: List<RealUser>, searchQue
                             supportingContent = { 
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     val icon = if(direction == "outgoing") Icons.Default.CallMade else if(isMissed) Icons.AutoMirrored.Default.CallMissed else Icons.AutoMirrored.Default.CallReceived
-                                    Icon(icon, null, tint = if(isMissed) Color.Red else ShynaDesign.colors.BrandGreen, modifier = Modifier.size(16.dp))
+                                    val iconTint = if(isMissed) Color(0xFFE53935) else if(direction == "outgoing") Color(0xFF25D366) else Color(0xFF2196F3)
+                                    Icon(icon, null, tint = iconTint, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(4.dp))
                                     Text(timeStr, color = ShynaDesign.colors.TextSecondary, fontSize = 12.sp)
                                 }
