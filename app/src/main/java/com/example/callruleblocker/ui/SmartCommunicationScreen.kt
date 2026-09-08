@@ -132,6 +132,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.example.callruleblocker.data.BlockedCallStore
 import com.example.callruleblocker.data.LocationService
+import com.example.callruleblocker.data.RuleRepository
 import com.example.callruleblocker.data.StatusLocalStore
 import com.google.firebase.firestore.DocumentSnapshot
 
@@ -5704,22 +5705,29 @@ private fun CallsListContent(userId: String, allUsers: List<RealUser>, searchQue
     
     val blockedStore = remember { BlockedCallStore(mContext) }
     var blockedEntries by remember { mutableStateOf(blockedStore.getAll()) }
+    var permanentBlockedNumbers by remember { mutableStateOf(setOf<String>()) }
     
     val hiddenPrefs = remember { mContext.getSharedPreferences("hidden_recent_calls_v1", Context.MODE_PRIVATE) }
     var hiddenIds by remember { mutableStateOf(hiddenPrefs.getStringSet("hidden_ids", emptySet()) ?: emptySet()) }
     
     LaunchedEffect(Unit) {
         blockedEntries = blockedStore.getAll()
+        runCatching {
+            permanentBlockedNumbers = RuleRepository(mContext).blockedSpecificNumbers()
+        }
     }
 
-    val filteredHistory = remember(history, searchQuery, blockedEntries, hiddenIds) {
-        val blockedNums = blockedEntries.map { it.number }.toSet()
+    val filteredHistory = remember(history, searchQuery, blockedEntries, permanentBlockedNumbers, hiddenIds) {
+        val storeNums = blockedEntries.map { it.number.filter(Char::isDigit).takeLast(10) }.toSet()
+        val permNums = permanentBlockedNumbers.map { it.filter(Char::isDigit).takeLast(10) }.toSet()
+        val allBlocked = storeNums + permNums
+
         history.filter { item ->
             val id = item["id"]?.toString() ?: ""
             if (hiddenIds.contains(id)) return@filter false
 
-            val num = (item["receiverName"] as? String ?: item["callerName"] as? String ?: "").filter(Char::isDigit).takeLast(10)
-            val isBlocked = num.isNotBlank() && blockedNums.contains(num)
+            val callerNum = (item["callerPhone"] as? String ?: item["callerName"] as? String ?: item["receiverName"] as? String ?: "").filter(Char::isDigit).takeLast(10)
+            val isBlocked = callerNum.isNotBlank() && allBlocked.any { callerNum.endsWith(it) || it.endsWith(callerNum) }
             !isBlocked
         }.let { list ->
             if (searchQuery.isEmpty()) list
