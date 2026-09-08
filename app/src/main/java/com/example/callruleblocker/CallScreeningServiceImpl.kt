@@ -61,10 +61,11 @@ class CallScreeningServiceImpl : CallScreeningService() {
                 }
             }
 
+            @Suppress("MissingPermission")
+            val simSlot = SimSlotResolver.resolveSlot(applicationContext, callDetails.accountHandle)
+
             val decision = runCatching {
                 withTimeoutOrNull(400) { // Slightly tighter timeout for faster response
-                    @Suppress("MissingPermission")
-                    val simSlot = SimSlotResolver.resolveSlot(applicationContext, callDetails.accountHandle)
                     ruleRepository.decide(number, simSlot)
                 }
             }.getOrNull() ?: "ALLOW"
@@ -77,18 +78,18 @@ class CallScreeningServiceImpl : CallScreeningService() {
 
             var finalDecision = decision
             if (finalDecision == "ALLOW" && unknownBlockActive) {
-                val specificBlocked = ruleRepository.blockedSpecificNumbers()
-                if (!specificBlocked.contains(simplifiedNumber)) {
-                    val countsPrefs = applicationContext.getSharedPreferences("unknown_call_counts",
+                val isBlockedOnThisSim = ruleRepository.isBlockedOnSim(simSlot, simplifiedNumber)
+                if (!isBlockedOnThisSim) {
+                    val countsPrefs = applicationContext.getSharedPreferences("unknown_call_counts_sim_$simSlot",
                         MODE_PRIVATE
                     )
                     val count = countsPrefs.getInt(simplifiedNumber, 0) + 1
                     countsPrefs.edit().putInt(simplifiedNumber, count).apply()
 
                     if (count >= 2) {
-                        ruleRepository.addRule(Rule(simSlotIndex = -1, matchType = "SPECIFIC_NUMBER", matchValue = simplifiedNumber, action = "BLOCK"))
+                        ruleRepository.addRule(Rule(simSlotIndex = simSlot, matchType = "SPECIFIC_NUMBER", matchValue = simplifiedNumber, action = "BLOCK"))
                         finalDecision = "BLOCK"
-                        Log.d("ShynaCall", "[AUTO-BLOCK] Unknown number $number permanently blocked after 2 calls and hidden from logs")
+                        Log.d("ShynaCall", "[AUTO-BLOCK] Unknown number $number permanently blocked on SIM $simSlot after 2 calls")
                     }
                 }
             }

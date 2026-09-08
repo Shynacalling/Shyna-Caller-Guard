@@ -25,6 +25,12 @@ class RuleRepository(private val context: Context) {
         }
     }
 
+    suspend fun isBlockedOnSim(simSlotIndex: Int, number: String): Boolean {
+        val rules = dao.rulesForSim(simSlotIndex)
+        val cleanNum = number.filter { it.isDigit() }.takeLast(10)
+        return rules.any { it.enabled && it.action == "BLOCK" && it.matchType == "SPECIFIC_NUMBER" && it.matchValue.filter(Char::isDigit).takeLast(10) == cleanNum }
+    }
+
     suspend fun addRule(rule: Rule) = dao.insert(rule)
     suspend fun deleteRule(rule: Rule) {
         trashStore.add(rule)
