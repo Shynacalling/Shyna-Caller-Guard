@@ -5952,9 +5952,14 @@ private fun CallsListContent(userId: String, allUsers: List<RealUser>, searchQue
                             Icon(Icons.Default.SelectAll, null, tint = ShynaDesign.colors.TextPrimary)
                         }
                         IconButton(onClick = {
-                            if (userId.isNotBlank()) {
+                            if (userId.isNotBlank() && selectedIds.isNotEmpty()) {
+                                val idsToDelete = selectedIds.toSet()
+                                // Optimistic local UI removal for instant response
+                                history = history.filter { !idsToDelete.contains(it["id"]?.toString()) }
+                                selectedIds = emptySet()
+
                                 runCatching {
-                                    selectedIds.forEach { id ->
+                                    idsToDelete.forEach { id ->
                                         if (id.isNotBlank()) {
                                             db.collection("users").document(userId).collection("call_history").document(id).delete()
                                         }
@@ -5962,9 +5967,8 @@ private fun CallsListContent(userId: String, allUsers: List<RealUser>, searchQue
                                 }.onFailure { e ->
                                     Log.e("ShynaCall", "Delete history error: ${e.message}")
                                 }
+                                Toast.makeText(mContext, "Call history deleted", Toast.LENGTH_SHORT).show()
                             }
-                            selectedIds = emptySet()
-                            Toast.makeText(mContext, "Call history deleted", Toast.LENGTH_SHORT).show()
                         }) {
                             Icon(Icons.Default.Delete, null, tint = Color.Red)
                         }
