@@ -5952,14 +5952,16 @@ private fun CallsListContent(userId: String, allUsers: List<RealUser>, searchQue
                             Icon(Icons.Default.SelectAll, null, tint = ShynaDesign.colors.TextPrimary)
                         }
                         IconButton(onClick = {
-                            runCatching {
-                                selectedIds.forEach { id ->
-                                    if (id.isNotBlank()) {
-                                        db.collection("users").document(userId).collection("call_history").document(id).delete()
+                            if (userId.isNotBlank()) {
+                                runCatching {
+                                    selectedIds.forEach { id ->
+                                        if (id.isNotBlank()) {
+                                            db.collection("users").document(userId).collection("call_history").document(id).delete()
+                                        }
                                     }
+                                }.onFailure { e ->
+                                    Log.e("ShynaCall", "Delete history error: ${e.message}")
                                 }
-                            }.onFailure { e ->
-                                Log.e("ShynaCall", "Delete history error: ${e.message}")
                             }
                             selectedIds = emptySet()
                             Toast.makeText(mContext, "Call history deleted", Toast.LENGTH_SHORT).show()
